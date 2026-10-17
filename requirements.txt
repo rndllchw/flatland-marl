@@ -1,0 +1,7 @@
+# Python 3.12. Pins match the ECML 2026 starter kit; competition requires flatland-rl 4.2.5/4.2.6.
+flatland-rl==4.2.6
+torch==2.9.1
+pyyaml
+pandas
+matplotlib
+tensorboard

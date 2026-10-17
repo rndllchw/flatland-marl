@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Cloned by scripts/setup_third_party.sh
+third_party/
+
+# Training outputs (checkpoints, logs); only results/ is committed
+runs/
+output/
+*.mp4
+
+# Course documents with personal data; keep in ../docs/
+*.pdf
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
