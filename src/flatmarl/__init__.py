@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[2]
 THIRD_PARTY = ROOT / "third_party"
 STARTER_KIT = THIRD_PARTY / "ecml2026-starterkit"
 BASELINES = THIRD_PARTY / "flatland-baselines"
+# 27 example scenarios, unzipped by scripts/setup_third_party.sh
+EXAMPLE_CURRICULUM = STARTER_KIT / "reinforcement_learning" / "curriculum" / "example_curriculum"
 
 # Make the pinned third-party repos importable (cloned by scripts/setup_third_party.sh):
 #   reinforcement_learning.*  (starter kit)   flatland_baselines.*  (heuristic)

@@ -128,6 +128,34 @@ m.as_row()                   # everything as one flat dict (a CSV row)
 | `COLLISION` | blocked while moving: 250 |
 | `TARGET_NOT_REACHED_MINIMUM_PENALTY` | declared by flatland 4.2.6 but never assigned: always 0 |
 
+## Evaluating policies
+
+`scripts/evaluate.py` runs policies over a folder of saved scenarios and writes one CSV row per
+episode. Default scenarios: the starter kit's 27 examples (unzipped by `setup_third_party.sh`).
+
+```bash
+# Baseline table (5 policies x 27 scenarios, each scenario's own disruptions), 8 in parallel
+python scripts/evaluate.py --policies do_nothing random forward checkpoint heuristic \
+    --out results/baselines_example_curriculum --workers 8
+
+# An experiment condition on a frozen test set, 3 breakdown patterns, a trained actor
+python scripts/evaluate.py --scenarios eval_sets/test --disruption breakdowns --seeds 0 1 2 \
+    --policies heuristic actor:runs/ippo_s0/actor.pt --out results/test_breakdowns
+```
+
+| Option | Meaning |
+|---|---|
+| `--policies` | `do_nothing`, `forward`, `random`, `heuristic`, `checkpoint`, or `actor:<path>` (any network with the starter-kit `ActorCritic` shape, saved as `{"model": state_dict}`) |
+| `--scenarios` | folder of `.pkl` scenarios, or one `.pkl` |
+| `--disruption` | `file` (each scenario's own, default), `none`, `breakdowns`, `breakdowns+delays` |
+| `--seeds` | one episode per seed (breakdown pattern + random policy); omitted = the file's stored randomness |
+| `--workers` | episodes in parallel; results are identical to `--workers 1` |
+| `--overwrite` | needed to replace existing results in `--out` |
+
+Output in `--out`: `episodes.csv` (one row per episode), `trains.csv` (one row per train per
+episode), `run.json` (command, git commit, versions, scenario list). Policies are defined in
+`src/flatmarl/policies.py`; `make_policy(name)` gives a fresh (policy, observation builder) pair.
+
 ## Repo layout and status
 
 ```
@@ -137,22 +165,36 @@ src/flatmarl/envs.py           ✅ environment factory: make_env, load_scenario,
 tests/test_envs.py             ✅ 20 tests for envs.py
 src/flatmarl/metrics.py        ✅ per-episode metrics (score, arrivals, lateness, missed stops, forced halts, fairness)
 tests/test_metrics.py          ✅ 21 tests for metrics.py
-scripts/evaluate.py            ⬜ run a policy over saved scenarios -> results CSV
+src/flatmarl/policies.py       ✅ named baseline policies + actor:<path>
+scripts/evaluate.py            ✅ run policies over saved scenarios -> episodes.csv, trains.csv, run.json
+tests/test_evaluate.py         ✅ 7 tests for evaluate.py
+results/baselines_example_curriculum/  ✅ first baseline table (5 policies x 27 scenarios)
 scripts/make_eval_sets.py      ⬜ build frozen val/test scenario sets
 src/flatmarl/{models,obs,rollout,reward,ppo}.py, scripts/train.py   ⬜ PPO trainer (IPPO / MAPPO)
 ```
 
 ## What we know so far
 
-On the starter-kit sample scenario (6 trains, no breakdowns), **neither baseline serves a single
-intermediate stop**:
+**Baselines on the 27 example scenarios** (`results/baselines_example_curriculum/`, each scenario's own
+breakdowns + departure delays):
 
-| Policy | Score | Arrived | Where the penalty comes from |
-|---|---|---|---|
-| Starter-kit PPO checkpoint | 0.730 | 6/6, all early | only missed stops (50 each) |
-| Deadlock-avoidance heuristic | 0.513 | 6/6 | missed stops + 4 "blocked while moving" penalties (250 each) |
+| Policy | Score: 1 / 10 / 25 trains | Arrived: 1 / 10 / 25 trains |
+|---|---|---|
+| Deadlock-avoidance heuristic | 0.982 / **0.654** / **0.536** | 100% / **81%** / **66%** |
+| Starter-kit PPO checkpoint | 0.982 / 0.396 / 0.351 | 100% / 21% / 16% |
+| Forward only | 0.694 / 0.393 / 0.202 | 11% / 4% / 2% |
+| Do nothing | 0.150 / 0.086 / 0.123 | 0% |
+| Random | 0.000 / 0.000 / 0.002 | 11% / 2% / 3% |
 
-A policy that reliably stops at stations without getting blocked would beat both here.
+- With more than one train, the heuristic clearly beats the RL checkpoint, which gets only ~20% of
+  trains home (consistent with the organisers' full-suite result, 10.73 vs 9.42).
+- **No policy serves a single intermediate stop** in any of the 70 episodes that have them.
+- **Always report arrivals next to the score.** A train that departs but never arrives costs about
+  100 penalty points, often small relative to the episode length, so "forward only" scores 0.694 on
+  single-train scenarios while getting 1 in 9 trains home.
+
+On the 6-train sample scenario alone the ranking flips (checkpoint 0.730 > heuristic 0.513), which is
+why a single scenario is not a benchmark.
 
 ## Notes
 

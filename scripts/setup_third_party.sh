@@ -27,3 +27,8 @@ clone_pinned ecml2026-starterkit \
 clone_pinned flatland-baselines \
   https://github.com/flatland-association/flatland-baselines.git \
   1e9d4a604fb2b2ddaf24a3f5b480914d132acb9e
+
+# The starter kit's 27 example scenarios (placeholder evaluation set until eval_sets/ is frozen).
+curriculum=third_party/ecml2026-starterkit/reinforcement_learning/curriculum
+unzip -q -o "$curriculum/example_curriculum.zip" -d "$curriculum"
+echo "example scenarios: $(ls "$curriculum/example_curriculum"/*.pkl | wc -l | tr -d ' ') in $curriculum/example_curriculum"

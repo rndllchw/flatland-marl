@@ -1,0 +1,58 @@
+{
+  "command": "python scripts/evaluate.py --policies do_nothing random forward checkpoint heuristic --out results/baselines_example_curriculum --workers 8",
+  "args": {
+    "scenarios": "/Users/rndllchw/Desktop/NUS Academic Weapon Archive/Y4S1/CS4246/project.nosync/flatland-marl/third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum",
+    "policies": [
+      "do_nothing",
+      "random",
+      "forward",
+      "checkpoint",
+      "heuristic"
+    ],
+    "disruption": "file",
+    "seeds": null,
+    "workers": 8,
+    "out": "results/baselines_example_curriculum",
+    "overwrite": false
+  },
+  "git": {
+    "commit": "eb0b1482a47293fd0d0c9d5aca1238a96c0caf06",
+    "uncommitted_changes": true
+  },
+  "versions": {
+    "flatland-rl": "4.2.6",
+    "torch": "2.9.1"
+  },
+  "python": "3.12.10",
+  "date_utc": "2026-10-18T12:38:03+00:00",
+  "scenarios": [
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/00_scene_1_ll-2_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/01_scene_4_ll-2_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/02_scene_5_ll-2_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/03_scene_1_ll-2_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/04_scene_4_ll-2_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/05_scene_5_ll-2_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/06_scene_1_ll-2_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/07_scene_4_ll-2_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/08_scene_5_ll-2_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/09_scene_1_ll-3_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/10_scene_4_ll-3_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/11_scene_5_ll-3_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/12_scene_1_ll-3_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/13_scene_4_ll-3_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/14_scene_5_ll-3_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/15_scene_1_ll-3_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/16_scene_4_ll-3_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/17_scene_5_ll-3_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/18_scene_1_ll-4_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/19_scene_4_ll-4_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/20_scene_5_ll-4_a-1.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/21_scene_1_ll-4_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/22_scene_4_ll-4_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/23_scene_5_ll-4_a-10.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/24_scene_1_ll-4_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/25_scene_4_ll-4_a-25.pkl",
+    "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/26_scene_5_ll-4_a-25.pkl"
+  ],
+  "episodes": 135
+}
