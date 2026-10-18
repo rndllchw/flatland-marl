@@ -10,6 +10,7 @@ Invariants:
 - Rewards are always the official ECML2026Rewards. Training-time shaping lives in reward.py.
 - Disruptions are always set explicitly after loading. A scenario file otherwise restores its
   own disruption settings and silently overrides anything passed to RailEnvPersister.load_new.
+- Every reset gets a fresh rewards object, so penalties never depend on earlier episodes.
 """
 import warnings
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from flatland.envs.rail_env import RailEnv
 from flatland.envs.rewards import ECML2026Rewards
 
 from flatmarl import STARTER_KIT
+from flatmarl.metrics import RecordingRewards
 from reinforcement_learning.my_observation_builder import FastTreeObsBuilder
 from reinforcement_learning.sampling.sampling_env_generator import sampling_env_generator
 
@@ -80,8 +82,16 @@ def _effects_generator(d: Disruption) -> EffectsGenerator:
     return gens[0] if len(gens) == 1 else make_multi_effects_generator(*gens)
 
 
+def _fresh_rewards() -> RecordingRewards:
+    """New rewards object for each episode. Flatland's rewards object remembers every train's
+    station visits and never clears them, so a reused env would credit stops served in earlier
+    episodes (seen: a never-stopping policy scored 0.620 instead of 0.513 after an episode that stopped).
+    RecordingRewards = official ECML2026Rewards that also records the breakdown for metrics.py."""
+    return RecordingRewards()
+
+
 def _default_obs_builder() -> ObservationBuilder:
-    # 36 features + 5-dim action mask, identical in training and inference (CLAUDE.md §6).
+    # 36 features + 5-dim action mask, identical in training and inference.
     return FastTreeObsBuilder(max_depth=3, with_action_mask=True)
 
 
@@ -116,20 +126,23 @@ def make_env(
 
     if isinstance(n_agents, Integral):  # Integral, not int: also accepts numpy integers
         env.number_of_agents = n_agents
+        rng = None
     else:
         lo, hi = n_agents
         if not 1 <= lo <= hi:
             raise ValueError(f"Invalid n_agents range {n_agents}; need 1 <= lo <= hi")
         # Own seeded RNG (the starter kit's curriculum helper uses numpy's global RNG).
         rng = np.random.default_rng(seed)
-        original_reset = env.reset
 
-        def reset_with_random_n(*args, **kwargs):
+    original_reset = env.reset
+
+    def reset(*args, **kwargs):
+        env.rewards = _fresh_rewards()
+        if rng is not None:
             env.number_of_agents = int(rng.integers(lo, hi + 1))
-            return original_reset(*args, **kwargs)
+        return original_reset(*args, **kwargs)
 
-        env.reset = reset_with_random_n
-
+    env.reset = reset
     return env
 
 
@@ -164,6 +177,7 @@ def load_scenario(
         # Effects generators cache random numbers and counters across episodes, so rebuild them,
         # and rewind the RNG, so that every reset is identical.
         env.effects_generator = fresh_effects()
+        env.rewards = _fresh_rewards()
         if seed is None:
             env.np_random.set_state(initial_rng_state)
         return original_reset(regenerate_rail=False, regenerate_schedule=False, random_seed=seed)
