@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ipynb_checkpoints/
+*.egg-info/
 
 # Cloned by scripts/setup_third_party.sh
 third_party/

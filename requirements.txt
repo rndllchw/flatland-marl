@@ -5,3 +5,7 @@ pyyaml
 pandas
 matplotlib
 tensorboard
+pytest
+
+# Our own package (src/flatmarl), installed editable so `import flatmarl` works everywhere
+-e .

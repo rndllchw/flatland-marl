@@ -1,6 +1,8 @@
 """Smoke test: run the two reference policies on the starter-kit sample scenario.
 
 Checks that the environment is installed correctly and that results match across machines.
+Goes through our own flatmarl.envs.load_scenario, so it also checks that our env layer
+reproduces the raw flatland results exactly.
 Exits non-zero if a score differs from the reference values recorded on 2026-10-17.
 
 Usage (from repo root, venv active):
@@ -8,17 +10,10 @@ Usage (from repo root, venv active):
 """
 import sys
 import time
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-STARTER_KIT = ROOT / "third_party" / "ecml2026-starterkit"
-BASELINES = ROOT / "third_party" / "flatland-baselines"
-sys.path[:0] = [str(STARTER_KIT), str(BASELINES)]
-
-from flatland.envs.persistence import RailEnvPersister
-from flatland.envs.rewards import ECML2026Rewards
+from flatmarl import STARTER_KIT
+from flatmarl.envs import load_scenario
 from flatland.envs.step_utils.states import TrainState
-from reinforcement_learning.my_observation_builder import FastTreeObsBuilder
 from reinforcement_learning.my_policy import ActorCritic
 from flatland_baselines.deadlock_avoidance_heuristic.policy.deadlock_avoidance_policy import DeadLockAvoidancePolicy
 from flatland_baselines.deadlock_avoidance_heuristic.observation.full_env_observation import FullEnvObservation
@@ -35,9 +30,9 @@ REFERENCE = {
 
 def run_episode(policy, obs_builder):
     """Run one full episode; return (normalised score, trains arrived, n agents, env steps/s)."""
-    rewards = ECML2026Rewards()
-    env = RailEnvPersister.load_new(str(SCENARIO), obs_builder=obs_builder, rewards=rewards)[0]
-    obs, _ = env.reset(regenerate_rail=False, regenerate_schedule=False)
+    # disruption=None keeps the file's own disruptions (breakdowns + stop delays), as recorded.
+    env = load_scenario(SCENARIO, disruption=None, obs_builder=obs_builder)
+    obs, _ = env.reset()
     handles = env.get_agent_handles()
     totals = {h: 0.0 for h in handles}
 
@@ -53,7 +48,7 @@ def run_episode(policy, obs_builder):
     steps_per_s = steps / (time.time() - start)
 
     # Official ECML 2026 normalisation (per-agent penalty capped at max_episode_steps).
-    score = rewards.normalize(*[totals[h] for h in handles],
+    score = env.rewards.normalize(*[totals[h] for h in handles],
                               num_agents=len(handles), max_episode_steps=env._max_episode_steps)
     arrived = sum(a.state == TrainState.DONE for a in env.agents)
     return score, arrived, len(handles), steps_per_s
@@ -61,8 +56,8 @@ def run_episode(policy, obs_builder):
 
 def main():
     policies = {
-        "ppo_checkpoint": (ActorCritic(checkpoint_path=str(CHECKPOINT)),
-                           FastTreeObsBuilder(max_depth=3, with_action_mask=True)),
+        # None = load_scenario's default obs builder (starter-kit FastTreeObs + action mask)
+        "ppo_checkpoint": (ActorCritic(checkpoint_path=str(CHECKPOINT)), None),
         "deadlock_heuristic": (DeadLockAvoidancePolicy(), FullEnvObservation()),
     }
 
