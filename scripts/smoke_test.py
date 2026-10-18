@@ -61,7 +61,7 @@ def main():
         ok &= match
         print(f"{name:20s} score {m.score:.3f} (expected {exp_score:.3f})  "
               f"arrived {arrived}/{m.n_trains} (expected {exp_arrived})  "
-              f"stops served {m.stop_service_rate:.0%}  forced halts {m.forced_halts}  "
+              f"stops served {m.stop_service_rate:.0%}  halts while moving {m.halts_while_moving}  "
               f"{steps_per_s:6.0f} steps/s  {'OK' if match else 'MISMATCH'}")
 
     print("smoke test PASSED" if ok else "smoke test FAILED: results differ from reference")

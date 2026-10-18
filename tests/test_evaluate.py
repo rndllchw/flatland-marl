@@ -53,7 +53,7 @@ def test_matches_direct_episode_metrics(small_set, tmp_path):
             if dones["__all__"]:
                 break
         direct = episode_metrics(env).as_row()
-        for key in ("score", "completion_rate", "forced_halts", "malfunctions", "penalty_collision"):
+        for key in ("score", "completion_rate", "halts_while_moving", "malfunctions", "penalty_collision"):
             assert float(row[key]) == pytest.approx(float(direct[key])), key
 
 
@@ -61,7 +61,7 @@ def test_reference_values_on_sample(tmp_path):
     episodes, trains, _ = run(tmp_path, "--scenarios", SAMPLE, "--policies", "checkpoint", "heuristic")
     scores = {r["policy"]: float(r["score"]) for r in episodes}
     assert scores == pytest.approx({"checkpoint": 0.730, "heuristic": 0.513}, abs=1e-3)
-    assert {r["policy"]: int(r["forced_halts"]) for r in episodes} == {"checkpoint": 0, "heuristic": 4}
+    assert {r["policy"]: int(r["halts_while_moving"]) for r in episodes} == {"checkpoint": 0, "heuristic": 4}
 
 
 def test_parallel_and_repeated_runs_are_identical(small_set, tmp_path):

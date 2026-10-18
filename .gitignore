@@ -12,6 +12,7 @@ third_party/
 # Training outputs (checkpoints, logs); only results/ is committed
 runs/
 output/
+pools/
 *.mp4
 
 # Course documents with personal data; keep in ../docs/

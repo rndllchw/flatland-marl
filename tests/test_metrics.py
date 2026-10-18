@@ -118,7 +118,7 @@ def test_checkpoint_breakdown(finished):
     m = episode_metrics(env)
     assert [t.missed_stops for t in m.trains] == [3, 3, 1, 2, 3, 4]
     assert [t.required_stops for t in m.trains] == [3, 3, 1, 2, 3, 4]
-    assert m.forced_halts == 0 and m.completion_rate == 1.0 and m.stop_service_rate == 0.0
+    assert m.halts_while_moving == 0 and m.completion_rate == 1.0 and m.stop_service_rate == 0.0
     assert all(t.lateness == 0 for t in m.trains)          # all arrived early
     assert m.penalty_by_type["INTERMEDIATE_NOT_SERVED"] == -800
 
@@ -128,7 +128,7 @@ def test_heuristic_breakdown(finished):
     if name != "heuristic":
         pytest.skip()
     m = episode_metrics(env)
-    assert [t.forced_halts for t in m.trains] == [0, 0, 0, 3, 0, 1]
+    assert [t.halts_while_moving for t in m.trains] == [0, 0, 0, 3, 0, 1]
     t3 = m.trains[3]
     assert (t3.penalty, t3.penalty_capped, t3.lateness, t3.missed_stops) == (-883, -494, 33, 2)
     assert t3.penalty_by_type["COLLISION"] == -750

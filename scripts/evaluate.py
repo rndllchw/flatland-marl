@@ -97,7 +97,7 @@ def print_summary(episodes: list[dict]):
     for (policy, disruption), rows in groups.items():
         print(f"{policy:38s} {disruption:18s} {len(rows):8d} {mean([r['score'] for r in rows]):6.3f} "
               f"{mean([r['completion_rate'] for r in rows]):8.0%} {mean([r['stop_service_rate'] for r in rows]):6.0%} "
-              f"{mean([r['forced_halts'] for r in rows]):6.1f}")
+              f"{mean([r['halts_while_moving'] for r in rows]):6.1f}")
     print("(score/arrived/stops/halts are means over episodes; stops excludes episodes without intermediate stops)")
 
 

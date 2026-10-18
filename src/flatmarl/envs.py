@@ -184,3 +184,44 @@ def load_scenario(
 
     env.reset = replay_reset
     return env
+
+
+class ScenarioPoolEnv:
+    """Training env that replays a random saved scenario from a pool folder at every reset.
+
+    Why: make_env invents routes at every reset, which takes 7-21 s once routes have intermediate
+    stops (flatland's route search); replaying a saved scenario takes 0.2-0.9 s. Build pools with
+    scripts/make_scenario_pool.py. Each reset picks a scenario and a breakdown pattern from `seed`,
+    so the whole episode sequence is reproducible. Everything else (step, agents, rewards, ...) is
+    forwarded to the current scenario's RailEnv, so episode_metrics and training code work unchanged.
+    """
+
+    def __init__(self, pool: str | Path, disruption: str | Disruption | None = "none", seed: int = 0,
+                 obs_builder_factory=None):
+        self.paths = sorted(Path(pool).glob("*.pkl"))
+        if not self.paths:
+            raise ValueError(f"no .pkl scenarios in pool {pool}; build one with scripts/make_scenario_pool.py")
+        _resolve(disruption) if disruption is not None else None  # fail fast on a bad preset name
+        self.disruption = disruption
+        self._rng = np.random.default_rng(seed)
+        self._obs_builder_factory = obs_builder_factory or _default_obs_builder  # one builder per env
+        self._env = None
+        self.scenario = None  # path of the scenario being played
+
+    def reset(self):
+        self.scenario = self.paths[int(self._rng.integers(len(self.paths)))]
+        self._env = load_scenario(self.scenario, disruption=self.disruption, seed=int(self._rng.integers(2**31)),
+                                  obs_builder=self._obs_builder_factory())
+        return self._env.reset()
+
+    def __getattr__(self, name):
+        env = self.__dict__.get("_env")  # not self._env: avoids recursion before reset / while unpickling
+        if env is None:
+            raise AttributeError(f"ScenarioPoolEnv has no {name!r} before the first reset()")
+        return getattr(env, name)
+
+
+def make_pool_env(pool: str | Path, disruption: str | Disruption | None = "none", seed: int = 0,
+                  obs_builder_factory=None) -> ScenarioPoolEnv:
+    """Same call shape as make_env (a recipe: functools.partial(make_pool_env, pool=..., seed=...))."""
+    return ScenarioPoolEnv(pool, disruption=disruption, seed=seed, obs_builder_factory=obs_builder_factory)

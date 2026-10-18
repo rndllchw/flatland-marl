@@ -1,0 +1,28 @@
+# IPPO on a pre-generated pool: scene 1, 5-10 trains, routes with intermediate stops, breakdowns.
+# Build the pool first (about 8 s per scenario per worker):
+#   python scripts/make_scenario_pool.py --out pools/scene1_a5-10_ll3 --n 2000 \
+#       --scene scene_1 --n-agents 5 10 --line-length 3 --seed 0 --workers 10
+name: ippo_scene1_pool
+critic: local
+env:
+  source: pool
+  pool: pools/scene1_a5-10_ll3
+  disruption: breakdowns
+reward:
+  scale: 0.01
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  minibatch_size: 1024
+  lr: 0.0003
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+train:
+  iterations: 200
+  episodes_per_iteration: 32
+  workers: 10
+  init_checkpoint: null
+  save_every: 20

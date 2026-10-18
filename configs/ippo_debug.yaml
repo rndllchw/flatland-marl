@@ -1,0 +1,14 @@
+# Trainer sanity check: one train, no intermediate stops, no breakdowns. A correct trainer should
+# learn to get (almost) every train home here before anything bigger is tried.
+name: ippo_debug
+critic: local
+env:
+  source: make_env
+  scene: scene_1
+  n_agents: 1
+  line_length: 2
+  disruption: none
+train:
+  iterations: 30
+  episodes_per_iteration: 16
+  workers: 8

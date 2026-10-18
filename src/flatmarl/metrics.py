@@ -2,11 +2,11 @@
 
     obs, info = env.reset()
     ...step until dones["__all__"]...
-    m = episode_metrics(env)          # m.score, m.completion_rate, m.trains[3].forced_halts, m.as_row()
+    m = episode_metrics(env)          # m.score, m.completion_rate, m.trains[3].halts_while_moving, m.as_row()
 
 How it works: envs.py gives every episode a RecordingRewards, a drop-in ECML2026Rewards that
 returns exactly the same rewards but also writes down, per train, flatland's own per-type
-penalties plus forced halts and malfunctions as they happen. Nothing is recomputed here.
+penalties plus halts while moving and malfunctions as they happen. Nothing is recomputed here.
 """
 import math
 from collections import defaultdict
@@ -37,7 +37,7 @@ class RecordingRewards(ECML2026Rewards):
     def __init__(self):
         super().__init__()
         self.by_type = defaultdict(_zero_penalties)  # train -> type -> total
-        self.forced_halts = defaultdict(int)
+        self.halts_while_moving = defaultdict(int)
         self.malfunctions = defaultdict(int)
         self.malfunctions_before_departure = defaultdict(int)
         self._was_broken = defaultdict(bool)
@@ -51,7 +51,7 @@ class RecordingRewards(ECML2026Rewards):
     def step_reward(self, agent, agent_transition_data, distance_map, elapsed_steps) -> float:
         penalties = self._proxy.step_reward(agent, agent_transition_data, distance_map, elapsed_steps)
         if penalties[COLLISION] != 0:
-            self.forced_halts[agent.handle] += 1
+            self.halts_while_moving[agent.handle] += 1
         broken = agent.state.is_malfunction_state()
         if broken and not self._was_broken[agent.handle]:
             if agent.state == TrainState.MALFUNCTION_OFF_MAP:
@@ -76,7 +76,8 @@ class TrainRecord:
     arrival_step: int | None
     deadline: int | None                 # latest allowed arrival at destination
     lateness: int | None                 # steps late (0 if on time or early); None if not arrived
-    forced_halts: int                    # blocked while moving (COLLISION penalty)
+    halts_while_moving: int              # times a MOVING train came to a halt, by choosing STOP or by being
+                                         # blocked: flatland charges COLLISION (250) for both
     malfunctions: int                    # on the map: breakdowns + departure delays (one state in flatland)
     malfunctions_before_departure: int   # breakdowns before the train entered the map
     penalty: float                       # total, uncapped
@@ -95,7 +96,7 @@ class EpisodeMetrics:
     on_time_rate: float                  # among arrived trains; nan if none arrived
     mean_lateness: float                 # among arrived trains; nan if none arrived
     stop_service_rate: float             # served / required over all trains; nan if no stops
-    forced_halts: int
+    halts_while_moving: int
     malfunctions: int                    # breakdowns + departure delays, on the map
     malfunctions_before_departure: int
     p90_lateness: float                  # fairness, among arrived trains; nan if none arrived
@@ -149,7 +150,7 @@ def episode_metrics(env: RailEnv) -> EpisodeMetrics:
             arrival_step=agent.arrival_time if arrived else None,
             deadline=agent.latest_arrival,
             lateness=max(agent.arrival_time - agent.latest_arrival, 0) if arrived else None,
-            forced_halts=rec.forced_halts[h],
+            halts_while_moving=rec.halts_while_moving[h],
             malfunctions=rec.malfunctions[h],
             malfunctions_before_departure=rec.malfunctions_before_departure[h],
             penalty=penalty,
@@ -171,7 +172,7 @@ def episode_metrics(env: RailEnv) -> EpisodeMetrics:
         on_time_rate=_mean_or_nan([lat == 0 for lat in lateness]),
         mean_lateness=_mean_or_nan(lateness),
         stop_service_rate=(required - sum(t.missed_stops for t in trains)) / required if required else math.nan,
-        forced_halts=sum(t.forced_halts for t in trains),
+        halts_while_moving=sum(t.halts_while_moving for t in trains),
         malfunctions=sum(t.malfunctions for t in trains),
         malfunctions_before_departure=sum(t.malfunctions_before_departure for t in trains),
         p90_lateness=float(np.percentile(lateness, 90)) if lateness else math.nan,

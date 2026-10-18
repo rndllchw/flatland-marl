@@ -1,5 +1,5 @@
 {
-  "command": "python scripts/evaluate.py --policies do_nothing random forward checkpoint heuristic --out results/baselines_example_curriculum --workers 8",
+  "command": "python scripts/evaluate.py --policies do_nothing random forward checkpoint heuristic --out results/baselines_example_curriculum --workers 8 --overwrite",
   "args": {
     "scenarios": "/Users/rndllchw/Desktop/NUS Academic Weapon Archive/Y4S1/CS4246/project.nosync/flatland-marl/third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum",
     "policies": [
@@ -13,10 +13,10 @@
     "seeds": null,
     "workers": 8,
     "out": "results/baselines_example_curriculum",
-    "overwrite": false
+    "overwrite": true
   },
   "git": {
-    "commit": "eb0b1482a47293fd0d0c9d5aca1238a96c0caf06",
+    "commit": "1b2a5d1f870bfdf18e3cdcba7b5d394a6cdf62c9",
     "uncommitted_changes": true
   },
   "versions": {
@@ -24,7 +24,7 @@
     "torch": "2.9.1"
   },
   "python": "3.12.10",
-  "date_utc": "2026-10-18T12:38:03+00:00",
+  "date_utc": "2026-10-18T13:49:17+00:00",
   "scenarios": [
     "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/00_scene_1_ll-2_a-1.pkl",
     "third_party/ecml2026-starterkit/reinforcement_learning/curriculum/example_curriculum/01_scene_4_ll-2_a-1.pkl",
