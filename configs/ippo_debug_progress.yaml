@@ -1,0 +1,17 @@
+# Step 2b: one-train sanity task from fresh weights, with progress shaping (+0.01 per cell closer
+# to the destination, the same size as one step of lateness after reward scaling).
+name: ippo_debug_progress
+critic: local
+env:
+  source: make_env
+  scene: scene_1
+  n_agents: 1
+  line_length: 2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.01
+train:
+  iterations: 30
+  episodes_per_iteration: 16
+  workers: 8

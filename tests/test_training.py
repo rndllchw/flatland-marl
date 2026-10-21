@@ -11,10 +11,10 @@ import torch
 import yaml
 
 from flatmarl import ROOT, STARTER_KIT
-from flatmarl.envs import load_scenario
+from flatmarl.envs import load_scenario, make_env
 from flatmarl.metrics import PENALTY_TYPES
 from flatmarl.models import OBS_SIZE, make_actor, masked_policy
-from flatmarl.policies import make_policy
+from flatmarl.policies import STARTER_KIT_CHECKPOINT, make_policy
 from flatmarl.ppo import gae, make_batch, ppo_update
 from flatmarl.rollout import collect_episode
 
@@ -82,7 +82,8 @@ def test_ppo_update_changes_the_actor_and_reports_stats(episode):
 
 def write_config(tmp_path, workers=1, **overrides):
     cfg = {"name": "tiny", "env": {"source": "make_env", "scene": "scene_1", "n_agents": 2, "line_length": 2},
-           "train": {"iterations": 2, "episodes_per_iteration": 2, "workers": workers, "save_every": 1}}
+           "train": {"iterations": 2, "episodes_per_iteration": 2, "workers": workers, "save_every": 1,
+                     "eval_episodes": 2}}
     for section, values in overrides.items():
         cfg.setdefault(section, {}).update(values)
     path = tmp_path / f"tiny_w{workers}.yaml"
@@ -120,3 +121,40 @@ def test_config_errors(tmp_path):
         train.load_config(path)
     with pytest.raises(ValueError, match="env.pool"):
         train.env_recipe({**train.DEFAULTS["env"], "source": "pool"})
+
+
+ONE_TRAIN = functools.partial(make_env, scene="scene_1", n_agents=1, line_length=2)
+
+
+def checkpoint_state():
+    return state_of(make_actor(STARTER_KIT_CHECKPOINT))
+
+
+def test_greedy_is_deterministic_and_the_checkpoint_gets_home():
+    job = (ONE_TRAIN, checkpoint_state(), 5000, {"scale": 0.01}, 0.99, True)
+    first, second = collect_episode(job), collect_episode(job)
+    assert first.metrics == second.metrics
+    assert first.metrics["completion_rate"] == 1.0
+
+
+def test_progress_shaping_telescopes_to_the_starting_distance():
+    # gamma = 1 and no official reward: the shaping terms sum to phi(end) - phi(start) = start distance
+    # for a train that arrives. Checks every step is shaped and credited exactly once.
+    seed = 5001
+    env = ONE_TRAIN(seed=seed)
+    env.reset()
+    a = env.agents[0]
+    start = env.distance_map.get()[0, a.initial_position[0], a.initial_position[1], a.initial_direction]
+    result = collect_episode((ONE_TRAIN, checkpoint_state(), seed, {"scale": 0.0, "progress": 1.0}, 1.0, True))
+    assert result.metrics["completion_rate"] == 1.0
+    assert sum(s.rewards.sum() for s in result.segments) == pytest.approx(start, rel=1e-6)
+
+
+def test_train_writes_greedy_checks_and_overwrite_starts_fresh_logs(tmp_path):
+    out = tmp_path / "run"
+    config = write_config(tmp_path)
+    train.main(["--config", str(config), "--seed", "0", "--out", str(out)])
+    train.main(["--config", str(config), "--seed", "0", "--out", str(out), "--overwrite"])
+    eval_rows = (out / "eval_log.csv").read_text().strip().splitlines()
+    assert [r.split(",")[0] for r in eval_rows[1:]] == ["0", "1", "2"]       # before training + each save
+    assert len((out / "train_log.csv").read_text().strip().splitlines()) == 1 + 2   # not appended to the old run

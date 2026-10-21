@@ -174,8 +174,9 @@ obs, info = env.reset()      # a random scenario from the pool, with a fresh see
 ```
 
 Pool files are saved with no disruptions; the breakdown setting is chosen when the pool is used.
-`pools/` is gitignored (about 50 KB per scenario). The same script builds evaluation sets: **keep seed
-ranges disjoint** (e.g. training pools from seed 0, eval sets from seed 1000000).
+`pools/` is gitignored (about 50 KB per scenario). The same script builds evaluation sets. **Keep seed
+ranges disjoint:** training pools from seed 0, validation pools from 1,000,000, frozen test sets from
+2,000,000 (see `EXPERIMENTS.md`).
 
 ## Training (IPPO)
 
@@ -187,23 +188,68 @@ python scripts/evaluate.py --policies actor:runs/ippo_debug_s0/actor.pt checkpoi
 A config sets the env (`source: make_env` or `source: pool`), `critic` (`local` = IPPO; `central` =
 MAPPO, not implemented yet), reward scale, PPO settings and the training budget; unknown keys are
 rejected. Each run writes `runs/<name>_s<seed>/`: `actor.pt` (plus snapshots), `train_log.csv` (one row
-per iteration: official score, arrivals, stops served, halts, PPO stats), `config.yaml`, `run.json`.
-Same config + seed gives identical weights, whatever the number of workers.
+per iteration: official score, arrivals, stops served, halts, PPO stats), `eval_log.csv`, `config.yaml`,
+`run.json`. Same config + seed gives identical weights, whatever the number of workers.
+
+**Judge progress by `eval_log.csv`, not `train_log.csv`.** Training games use sampled actions, which can
+make a policy that never moves look half-decent. The greedy check plays the actor's top action (as
+`evaluate.py` does) on the same 8 games each time (`train.eval_episodes`), at iteration 0 and at every
+save. `train.init_checkpoint` and `env.pool` paths are relative to the repo root.
 
 | File | Role | Extension point |
 |---|---|---|
 | `src/flatmarl/models.py` | actor (the starter kit's `ActorCritic`), masked action sampling | `check_critic`: central critic (Member 3) |
 | `src/flatmarl/rollout.py` | play one episode; records only real decisions; credits every reward to the train's latest decision | — |
 | `src/flatmarl/ppo.py` | GAE advantages, clipped PPO update | value-target normalisation (Member 2); central-critic values (Member 3) |
-| `src/flatmarl/reward.py` | official reward × scale | shaping terms (Member 4) |
+| `src/flatmarl/reward.py` | official reward × scale; optional `progress` shaping (potential-based, towards the destination) | more shaping terms (Member 4) |
 | `scripts/train.py`, `configs/` | config + seed → run folder | curriculum schedule (Member 4) |
 
-**Status of learning (18 Oct):** the mechanics are tested (rewards fully credited, only legal actions,
-reproducible), but on the one-train sanity config (`configs/ippo_debug.yaml`) a fresh network learns to
-stop getting blocked (halts 51 → 0, score 0 → ~0.5) **without learning to arrive** (~0–6%). A longer
-horizon (γ 0.999) did not fix it. Arrival is only rewarded at the end of a 150–600-step episode, so the
-next step is **reward shaping** (e.g. progress towards the next stop) or a warm start from the
-organisers' checkpoint (`train.init_checkpoint`).
+**Status of learning (19 Oct), one-train sanity task, seed 0, 30 iterations, greedy check:**
+
+| Config | Greedy result after 30 iterations |
+|---|---|
+| `ippo_debug` (fresh weights) | never departs (100%); the training log's 0.53 came from sampled actions |
+| `ippo_debug_warm` (organisers' checkpoint) | **100% arrived, score 1.000 throughout**: PPO keeps a good policy good |
+| `ippo_debug_progress` (fresh, progress 0.01) | never departs (100%) |
+| fresh, progress 0.1 | departs at iteration 10 (12% never depart), then drifts back (88%); no arrivals |
+
+Diagnosis: a fresh network picks STOP often while exploring, and every STOP while moving costs 250
+immediately, while waiting at the start costs nothing until the episode ends. So it learns to stay off
+the map. Warm start sidesteps this; learning from scratch needs more work. Every run, with how to rerun
+it, is in [`EXPERIMENTS.md`](EXPERIMENTS.md).
+
+## Official reward vs training reward
+
+There are two rewards. The **official reward** (`ECML2026Rewards`: 1 per step late, 50 per missed stop,
+250 per halt while moving, ...) is how results are graded: every reported number uses it, so results
+stay comparable with the baselines and the organisers' scores. The **training reward** is what PPO
+learns from; we may change it, as long as learning from it produces policies that do well on the
+official reward.
+
+```
+env.step() ──▶ official reward per train
+                 ├──▶ metrics.py  (RecordingRewards) ──▶ score, arrivals, penalty breakdown   ← what we REPORT
+                 └──▶ reward.py   (RewardShaper)     ──▶ training reward                      ← what PPO LEARNS FROM
+                                                        = official × reward.scale (+ reward.progress shaping)
+```
+
+The training reward is computed only inside `rollout.py`; `evaluate.py` and `episode_metrics` never see it.
+
+| Problem with learning from the official reward | Fix in the training reward | Changes which policy is best? |
+|---|---|---|
+| Numbers too big: −250 makes the critic's targets large and learning unstable | `reward.scale` (default 0.01): −250 becomes −2.5 | No: every reward shrinks equally |
+| Feedback too late: most penalties arrive at arrival or episode end, hundreds of steps after the decisions that caused them | `reward.progress`: a small reward for each cell closer to the destination | No: it is potential-based shaping (Ng et al., 1999), the same signal given earlier |
+| Rewards the wrong behaviour: a chosen STOP costs 250, so policies learn not to give way and to skip stations | not built yet: leave chosen STOPs unpenalised in training | **Yes**: a team decision, and a stated design choice in the report |
+
+**Rules:**
+
+1. Report official numbers only (`episode_metrics`, `evaluate.py`), with arrivals next to the score. Never
+   compare runs by training reward.
+2. IPPO and MAPPO train on exactly the same training reward.
+3. Every shaping term is a config switch that defaults to off, so each run's `config.yaml` records which
+   training reward produced it.
+4. A change that alters which policy is best is reported as a design choice, with results still measured
+   on the official reward.
 
 ## For teammates: how to plug in
 
@@ -271,7 +317,8 @@ src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a r
 scripts/make_scenario_pool.py  ✅ pre-generate scenario pools (parallel, resumable)
 tests/test_pool.py             ✅ 7 tests for pools
 src/flatmarl/{models,rollout,ppo,reward}.py, scripts/train.py, configs/   ✅ IPPO framework (learning: see Training)
-tests/test_training.py         ✅ 8 tests for the training framework
+tests/test_training.py         ✅ 11 tests for the training framework
+EXPERIMENTS.md                 ✅ experiment log: every run, how to rerun it, results, conclusions
 src/flatmarl/obs.py + central critic   ⬜ MAPPO (Member 3)
 ```
 
@@ -304,6 +351,12 @@ braking is applied (`rail_env.py`, line 516), although the reward code's comment
 the competition ran on 4.2.5/4.2.6, official scores work the same way. So **serving an intermediate stop
 costs 250 while skipping it costs 50**: the official reward makes skipping stops rational, which explains
 why no baseline serves any. Worth discussing in the report (reward design vs. real-world goals).
+
+**Warm-started IPPO on 5–10 interacting trains (E3 in `EXPERIMENTS.md`):** the official score rises from
+0.52 to ~0.81 (above the heuristic's 0.64), but almost entirely by halting less; the share of trains that
+arrive moves from 45% to at best 57%, far below the heuristic's 86%. Giving way means stopping, and
+stopping costs 250, so the official score rewards *less* coordination. How training should treat chosen
+stops is an open team decision.
 
 ## Notes
 

@@ -1,0 +1,16 @@
+# Experiment 2c: ippo_debug_progress with 10x stronger progress shaping (0.1 per cell).
+name: ippo_debug_progress01
+critic: local
+env:
+  source: make_env
+  scene: scene_1
+  n_agents: 1
+  line_length: 2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.1
+train:
+  iterations: 30
+  episodes_per_iteration: 16
+  workers: 8

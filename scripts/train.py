@@ -8,7 +8,9 @@ critic: central = MAPPO (critic sees a summary of all trains). Member 3; see fla
 Writes runs/<name>_s<seed>/:
     config.yaml     the full config used (defaults filled in)
     run.json        command, git commit, versions
-    train_log.csv   one row per iteration: official episode metrics + PPO stats
+    train_log.csv   one row per iteration: official metrics of the (sampled) training games + PPO stats
+    eval_log.csv    greedy check: the actor playing its top action, as evaluate.py does, on the same
+                    fixed games each time; at iteration 0 (before training) and at every save
     actor.pt        latest actor, as {"model": state_dict}; also actor_<iteration>.pt snapshots
 Evaluate a run:  python scripts/evaluate.py --policies actor:runs/<name>_s<seed>/actor.pt --out ...
 
@@ -43,12 +45,13 @@ DEFAULTS = {
     "critic": "local",
     "env": {"source": "make_env", "scene": "scene_1", "n_agents": 10, "line_length": 2,
             "disruption": "none", "pool": None},
-    "reward": {"scale": 0.01},
+    "reward": {"scale": 0.01, "progress": 0.0},
     "ppo": {"gamma": 0.99, "gae_lambda": 0.95, "clip": 0.2, "epochs": 4, "minibatch_size": 512,
             "lr": 3e-4, "entropy_coef": 0.01, "value_coef": 0.5, "max_grad_norm": 0.5},
     "train": {"iterations": 50, "episodes_per_iteration": 16, "workers": 1, "init_checkpoint": None,
-              "save_every": 10},
+              "save_every": 10, "eval_episodes": 8},
 }
+EVAL_SEED = 10**6  # greedy checks play the games seeded EVAL_SEED, EVAL_SEED + 1, ... in every run
 
 
 def merge(defaults: dict, given: dict, where="config") -> dict:
@@ -86,6 +89,15 @@ def env_recipe(env_cfg: dict):
     raise ValueError(f"env.source must be make_env or pool, got {env_cfg['source']!r}")
 
 
+def append_csv(path: Path, row: dict):
+    new = not path.exists()
+    with path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row))
+        if new:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def mean(values) -> float:
     values = [v for v in values if not (isinstance(v, float) and math.isnan(v))]
     return float(np.mean(values)) if values else math.nan
@@ -104,6 +116,8 @@ def main(argv=None):
     if (run_dir / "train_log.csv").exists() and not args.overwrite:
         raise SystemExit(f"{run_dir} already has a run; pass --overwrite to replace it")
     run_dir.mkdir(parents=True, exist_ok=True)
+    for old in ("train_log.csv", "eval_log.csv"):  # --overwrite: start the logs fresh, don't append
+        (run_dir / old).unlink(missing_ok=True)
     (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
     git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True).stdout.strip()  # noqa: E731
     (run_dir / "run.json").write_text(json.dumps({
@@ -119,22 +133,44 @@ def main(argv=None):
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     generator = torch.Generator().manual_seed(args.seed)
-    actor = make_actor(cfg["train"]["init_checkpoint"])
+    init = cfg["train"]["init_checkpoint"]  # like env.pool, a relative path is relative to the repo root
+    actor = make_actor(None if init is None else (Path(init) if Path(init).is_absolute() else ROOT / init))
     optimizer = torch.optim.Adam(actor.parameters(), lr=cfg["ppo"]["lr"])
     recipe = env_recipe(cfg["env"])
     train, ppo = cfg["train"], cfg["ppo"]
 
     workers = multiprocessing.get_context("spawn").Pool(train["workers"]) if train["workers"] > 1 else None
     log_path, decisions_total = run_dir / "train_log.csv", 0
+
+    def run_jobs(jobs):
+        return workers.map(collect_episode, jobs) if workers else [collect_episode(j) for j in jobs]
+
+    def greedy_check(iteration):
+        """The actor taking its top action, as evaluate.py does, on the same fixed games every time.
+        Training logs come from sampled actions and can hide a policy that never moves."""
+        if not train["eval_episodes"]:
+            return
+        state = {k: v.detach().clone() for k, v in actor.state_dict().items()}
+        jobs = [(recipe, state, EVAL_SEED + i, cfg["reward"], ppo["gamma"], True) for i in range(train["eval_episodes"])]
+        episodes = [r.metrics for r in run_jobs(jobs)]
+        row = {"iteration": iteration,
+               **{k: mean([e[k] for e in episodes]) for k in
+                  ("score", "completion_rate", "cancelled_rate", "stop_service_rate", "halts_while_moving")}}
+        append_csv(run_dir / "eval_log.csv", row)
+        print(f"  greedy check after {iteration} iterations: score {row['score']:.3f}  "
+              f"arrived {row['completion_rate']:4.0%}  never departed {row['cancelled_rate']:4.0%}  "
+              f"halts {row['halts_while_moving']:5.1f}")
+
     print(f"{cfg['name']} seed {args.seed}: {train['iterations']} iterations x {train['episodes_per_iteration']} "
           f"episodes, critic={cfg['critic']}, {train['workers']} worker(s) -> {run_dir}")
     try:
+        greedy_check(0)
         for iteration in range(1, train["iterations"] + 1):
             start = time.time()
             seeds = np.random.SeedSequence([args.seed, iteration]).generate_state(train["episodes_per_iteration"])
             state = {k: v.detach().clone() for k, v in actor.state_dict().items()}
             jobs = [(recipe, state, int(s), cfg["reward"], ppo["gamma"]) for s in seeds]
-            results = workers.map(collect_episode, jobs) if workers else [collect_episode(j) for j in jobs]
+            results = run_jobs(jobs)
 
             batch = make_batch(results, ppo["gae_lambda"])
             stats = ppo_update(actor, optimizer, batch, ppo, generator)
@@ -153,11 +189,7 @@ def main(argv=None):
                 **stats,
                 "seconds": round(time.time() - start, 2),
             }
-            with log_path.open("a", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=list(row))
-                if iteration == 1:
-                    writer.writeheader()
-                writer.writerow(row)
+            append_csv(log_path, row)
             print(f"  it {iteration:4d}  score {row['score']:.3f}  arrived {row['completion_rate']:4.0%}  "
                   f"halts {row['halts_while_moving']:5.1f}  entropy {row['entropy']:.2f}  "
                   f"decisions {row['decisions']:6d}  {row['seconds']:5.1f}s")
@@ -165,6 +197,7 @@ def main(argv=None):
             if iteration % train["save_every"] == 0 or iteration == train["iterations"]:
                 save_actor(actor, run_dir / f"actor_{iteration}.pt")
                 save_actor(actor, run_dir / "actor.pt")
+                greedy_check(iteration)
     finally:
         if workers:
             workers.close()

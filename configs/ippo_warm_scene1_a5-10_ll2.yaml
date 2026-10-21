@@ -1,0 +1,31 @@
+# Experiment 3: warm-started IPPO on interacting trains (scene 1, 5-10 trains, no intermediate stops,
+# no breakdowns). The organisers' checkpoint navigates perfectly alone but gets only ~20% of trains home
+# once they interact; does IPPO fine-tuning improve coordination?
+# Pool: python scripts/make_scenario_pool.py --out pools/scene1_a5-10_ll2 --n 2000 \
+#           --scene scene_1 --n-agents 5 10 --line-length 2 --seed 0 --workers 10
+name: ippo_warm_scene1_a5-10_ll2
+critic: local
+env:
+  source: pool
+  pool: pools/scene1_a5-10_ll2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.0
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  minibatch_size: 1024
+  lr: 0.0001            # lower than the 3e-4 default: fine-tuning a working policy, noisier multi-train feedback
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+train:
+  iterations: 100
+  episodes_per_iteration: 32
+  workers: 10
+  init_checkpoint: third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt
+  save_every: 10
+  eval_episodes: 16

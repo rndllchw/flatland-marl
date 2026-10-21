@@ -1,0 +1,15 @@
+# Step 2a: one-train sanity task, starting from the organisers' trained network (warm start).
+# Tests whether PPO keeps a good policy good. Same settings as ippo_debug otherwise.
+name: ippo_debug_warm
+critic: local
+env:
+  source: make_env
+  scene: scene_1
+  n_agents: 1
+  line_length: 2
+  disruption: none
+train:
+  iterations: 30
+  episodes_per_iteration: 16
+  workers: 8
+  init_checkpoint: third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt

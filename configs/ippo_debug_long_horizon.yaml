@@ -1,0 +1,16 @@
+# Experiment 1b: ippo_debug with a longer horizon (gamma 0.999, lambda 0.99). Result: policy collapsed.
+name: ippo_debug_long_horizon
+critic: local
+env:
+  source: make_env
+  scene: scene_1
+  n_agents: 1
+  line_length: 2
+  disruption: none
+train:
+  iterations: 30
+  episodes_per_iteration: 16
+  workers: 8
+ppo:
+  gamma: 0.999
+  gae_lambda: 0.99

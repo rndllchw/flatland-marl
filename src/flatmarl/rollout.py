@@ -42,16 +42,19 @@ class EpisodeResult:
 
 
 def collect_episode(job) -> EpisodeResult:
-    """job = (env_fn, actor_state_dict, seed, reward_config, gamma). env_fn(seed=...) builds the env,
-    e.g. functools.partial(make_env, ...) or functools.partial(make_pool_env, pool=...)."""
-    env_fn, actor_state, seed, reward_config, gamma = job
+    """job = (env_fn, actor_state_dict, seed, reward_config, gamma[, greedy]). env_fn(seed=...) builds
+    the env, e.g. functools.partial(make_env, ...) or functools.partial(make_pool_env, pool=...).
+    greedy=True always takes the most likely legal action, as evaluate.py does (default: sample)."""
+    env_fn, actor_state, seed, reward_config, gamma, *rest = job
+    greedy = bool(rest[0]) if rest else False
     actor = make_actor()
     actor.load_state_dict(actor_state)
     generator = torch.Generator().manual_seed(seed)
-    shaper = RewardShaper(**reward_config)
+    shaper = RewardShaper(gamma=gamma, **reward_config)
 
     env = env_fn(seed=seed)
     obs, _ = env.reset()
+    shaper.start(env)
     handles = env.get_agent_handles()
     rec = {h: {"obs": [], "actions": [], "logprobs": [], "values": [], "rewards": [], "steps": []} for h in handles}
     unattributed = 0.0
@@ -65,7 +68,10 @@ def collect_episode(job) -> EpisodeResult:
             with torch.no_grad():
                 logits, values = actor(x[:, :OBS_SIZE])
                 dist = masked_policy(logits, x[:, OBS_SIZE:])
-                chosen = torch.multinomial(dist.probs, 1, generator=generator).squeeze(1)
+                if greedy:
+                    chosen = dist.probs.argmax(dim=1)
+                else:
+                    chosen = torch.multinomial(dist.probs, 1, generator=generator).squeeze(1)
                 logprobs = dist.log_prob(chosen)
             for i, h in enumerate(deciding):
                 r = rec[h]
