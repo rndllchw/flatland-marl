@@ -319,6 +319,8 @@ tests/test_pool.py             ✅ 7 tests for pools
 src/flatmarl/{models,rollout,ppo,reward}.py, scripts/train.py, configs/   ✅ IPPO framework (learning: see Training)
 tests/test_training.py         ✅ 11 tests for the training framework
 EXPERIMENTS.md                 ✅ experiment log: every run, how to rerun it, results, conclusions
+results/e3_training/           ✅ E3 trained networks (every 10 iterations) and logs, seeds 0–2
+results/e3_val_seeds/          ✅ E3 validation of all 30 snapshots (+ summary_by_snapshot.csv)
 src/flatmarl/obs.py + central critic   ⬜ MAPPO (Member 3)
 ```
 
@@ -352,11 +354,14 @@ the competition ran on 4.2.5/4.2.6, official scores work the same way. So **serv
 costs 250 while skipping it costs 50**: the official reward makes skipping stops rational, which explains
 why no baseline serves any. Worth discussing in the report (reward design vs. real-world goals).
 
-**Warm-started IPPO on 5–10 interacting trains (E3 in `EXPERIMENTS.md`):** the official score rises from
-0.52 to ~0.81 (above the heuristic's 0.64), but almost entirely by halting less; the share of trains that
-arrive moves from 45% to at best 57%, far below the heuristic's 86%. Giving way means stopping, and
-stopping costs 250, so the official score rewards *less* coordination. How training should treat chosen
-stops is an open team decision.
+**Warm-started IPPO on 5–10 interacting trains (E3 in `EXPERIMENTS.md`, 3 training seeds, 50 unseen
+validation scenarios):** after 100 iterations the official score rises from 0.52 to 0.78 (+0.26, 95% CI
++0.20 to +0.32, above the heuristic's 0.64), but the share of trains that arrive *falls* from 45% to 38%
+(−7%, CI −14% to −1%), against the heuristic's 86%. The score gain is fewer halts. Arrivals peak early
+(two of three seeds are best at iteration 20, 68% arrived on average) and erode with further training:
+giving way means stopping, and stopping costs 250, so the official score rewards *less* coordination.
+How training should treat chosen stops is an open team decision. Networks and logs:
+`results/e3_training/`; validation results: `results/e3_val_seeds/`.
 
 ## Notes
 

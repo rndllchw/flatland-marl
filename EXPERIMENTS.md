@@ -149,3 +149,86 @@ Rerun any of them with `python scripts/train.py --config configs/<config> --seed
 - **Open decision this raises (team):** for the IPPO vs MAPPO comparison, train on the official reward
   (and accept that "don't stop" wins), or train with chosen STOPs not penalised (the trainer knows which
   halts followed a STOP action) while still *reporting* official scores and arrivals.
+
+### E3 repeated with training seeds 1 and 2 (21 Oct)
+
+- **Question:** is seed 0's result (validation arrivals 45% → 57% at iteration 60) reproducible across
+  training seeds?
+- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2.yaml --seed 1` (and `--seed 2`).
+- **Code:** seeds 1–2 ran on commit `6540847`; seed 0 ran on `25f05a5` plus uncommitted changes that are
+  byte-identical to `6540847` (all code files were last modified on 19 Oct, before seed 0 ran).
+- **Outputs (committed):** `results/e3_training/` — per seed: snapshots `actor_10.pt` … `actor_100.pt`,
+  `eval_log.csv`, `train_log.csv`, `config.yaml`, `run.json`; plus `greedy_checks_all_seeds.csv`.
+
+**Run health:** all three ran cleanly.
+
+| Seed | Iterations | Errors | Unattributed penalty | Lowest entropy | Largest `approx_kl` | Time |
+|---|---|---|---|---|---|---|
+| 0 | 100 | none | 0 | 0.57 | 0.010 | 15.4 min |
+| 1 | 100 | none | 0 | 0.56 | 0.007 | 17.3 min |
+| 2 | 100 | none | 0 | 0.55 | 0.009 | 14.9 min |
+
+**Greedy check, share of trains arrived** (16 fixed training-pool games per check; noisy):
+
+| After iteration | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Seed 0 | 38% | 50% | 55% | 42% | 53% | 49% | 60% | 47% | 47% | 49% | 41% |
+| Seed 1 | 38% | 59% | 42% | 39% | 38% | 40% | 51% | 43% | 59% | 68% | 49% |
+| Seed 2 | 38% | 49% | 79% | 54% | 66% | 33% | 5% | 39% | 53% | 40% | 23% |
+| Seed 2, never departed | 0% | 0% | 0% | 0% | 0% | 8% | 37% | 32% | 0% | 0% | 14% |
+
+Halts per game fell from 4.6 to under 1 in every seed and stayed there.
+
+- **Conclusions:**
+  - The training mechanics are reproducible and healthy (no errors, no lost penalties, no entropy collapse).
+  - **Arrivals are unstable across seeds and across iterations.** Each seed peaks at a different iteration
+    (seed 0: 60% at it 60; seed 1: 68% at it 90; seed 2: 79% at it 20) and falls back; final snapshots range
+    from 23% to 49% arrived on these games.
+  - Seed 2 temporarily relapses into "stay at the start" (37% of trains never depart at it 60): the
+    failure mode of E1 can return mid-training even from a warm start.
+  - "Stop halting" is learned reliably by every seed; arriving is not.
+  - Seed 0's +12% validation result should not be treated as established until all seeds are evaluated
+    on the validation pool.
+- **Validation of all seeds (21 Oct):** all 30 snapshots on the 50 validation scenarios, no disruptions
+  (`results/e3_val_seeds/`: `episodes.csv`, `trains.csv`, `run.json`, and `summary_by_snapshot.csv` = one row
+  per seed × iteration). Seed 0's snapshots reproduce the earlier `e3_val_ippo` results scenario for scenario.
+  Rule fixed before looking: main number = each seed's iteration-100 snapshot; secondary = each seed's best
+  snapshot by validation arrivals. Differences are paired per scenario, 95% bootstrap CI over scenarios.
+
+  **Validation arrivals by iteration:**
+
+  | After iteration | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | Seed 0 | 49% | 64% | 46% | 55% | 50% | 57% | 45% | 46% | 47% | 40% |
+  | Seed 1 | 55% | 49% | 43% | 40% | 41% | 55% | 49% | 62% | 65% | 53% |
+  | Seed 2 | 46% | 75% | 52% | 63% | 36% | 9% | 28% | 52% | 42% | 21% |
+
+  (Checkpoint 45%, heuristic 86% on the same scenarios. Seed 2 never-departed: 12%, 34%, 31% at iterations
+  50–70 and 20% at 100.)
+
+  **Main result, final snapshots (unbiased):**
+
+  | | Score | Arrived | Halts | vs checkpoint: score | vs checkpoint: arrived | vs heuristic: arrived |
+  |---|---|---|---|---|---|---|
+  | Seed 0, it 100 | 0.794 | 40% | 0.8 | +0.28 [+0.21, +0.33] | −6% [−12, 0] | |
+  | Seed 1, it 100 | 0.844 | 53% | 0.7 | +0.33 [+0.26, +0.39] | +8% [+1, +15] | |
+  | Seed 2, it 100 | 0.702 | 21% | 0.6 | +0.18 [+0.11, +0.26] | −24% [−32, −15] | |
+  | **Mean of seeds** | **0.780** (sd 0.072) | **38%** (sd 16%) | | **+0.26 [+0.20, +0.32]** | **−7% [−14, −1]** | −48% [−53, −42] |
+
+  **Secondary, best snapshot per seed by validation arrivals (optimistic):** iterations 20, 90, 20.
+  Mean score 0.796 (sd 0.084), arrived **68%** (sd 6%): vs checkpoint arrived +22% [+16, +28], vs heuristic
+  −18% [−23, −12]. Chosen from 10 snapshots on these same scenarios, so this overstates what a fresh test
+  set would show.
+- **Conclusions (all seeds):**
+  - **After full training, IPPO gets *fewer* trains home than the checkpoint it started from**
+    (38% vs 45%, −7% [−14, −1]), while the official score rises by +0.26: the score gain is fewer halts.
+  - **Arrivals peak early and then erode:** two of three seeds are best at iteration 20, and the longer
+    training continues on the official reward, the further it moves towards "don't stop", at the cost of
+    getting trains home. Consistent with the 250-per-stop incentive.
+  - Seed 0's earlier "+12% at iteration 60" was one seed at one snapshot; it does not hold up as a general result.
+  - Seed-to-seed spread is large (arrivals sd 16% at iteration 100): conclusions need all three seeds.
+  - The best early snapshots (68% arrived) are promising but selected on validation; only a frozen test set
+    can confirm them.
+- **Possible next steps:** smaller learning rate or fewer PPO epochs per iteration (stability); snapshot
+  selection by validation; the team's stop-rule decision (the swings between "go" and "stay put" are what
+  the 250-per-stop penalty encourages).

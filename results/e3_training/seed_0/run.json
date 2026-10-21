@@ -1,0 +1,13 @@
+{
+  "command": "python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2.yaml --seed 0 --overwrite",
+  "seed": 0,
+  "git": {
+    "commit": "25f05a5ceb7d09010e297ce997ebb16c6df4c3f7",
+    "uncommitted_changes": true
+  },
+  "versions": {
+    "flatland-rl": "4.2.6",
+    "torch": "2.9.1"
+  },
+  "date_utc": "2026-10-21T01:18:32+00:00"
+}
