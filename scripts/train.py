@@ -39,6 +39,7 @@ from flatmarl import ROOT
 from flatmarl.envs import make_env, make_pool_env
 from flatmarl.models import check_critic, make_actor, save_actor
 from flatmarl.ppo import ValueNormalizer, make_batch, ppo_update
+from flatmarl.reward import RewardShaper
 from flatmarl.rollout import collect_episode
 
 DEFAULTS = {
@@ -46,7 +47,8 @@ DEFAULTS = {
     "critic": "local",
     "env": {"source": "make_env", "scene": "scene_1", "n_agents": 10, "line_length": 2,
             "disruption": "none", "pool": None},
-    "reward": {"scale": 0.01, "progress": 0.0, "exempt_chosen_stops": False},
+    "reward": {"scale": 0.01, "progress": 0.0, "exempt_chosen_stops": False, "chosen_stop_cost": 0.0,
+               "waiting_cost": 0.0},
     "ppo": {"gamma": 0.99, "gae_lambda": 0.95, "clip": 0.2, "epochs": 4, "minibatch_size": 512,
             "lr": 3e-4, "entropy_coef": 0.01, "value_coef": 0.5, "max_grad_norm": 0.5, "value_norm": False},
     "train": {"iterations": 50, "episodes_per_iteration": 16, "workers": 1, "init_checkpoint": None,
@@ -71,6 +73,7 @@ def load_config(path: Path) -> dict:
     if not cfg["name"]:
         raise ValueError("config needs a name")
     check_critic(cfg["critic"])
+    RewardShaper(**cfg["reward"])  # reject bad combinations now, not inside a worker
     return cfg
 
 

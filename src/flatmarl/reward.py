@@ -21,6 +21,17 @@ exempt_chosen_stops
            changes which policy is best (unlike scale and progress), so it is a stated design choice.
            Flatland charges it in the same step as the STOP (checked 25 Oct, 639/639 STOPs). The charge
            is read from RecordingRewards (env built by flatmarl.envs), not recomputed.
+
+chosen_stop_cost
+           With exempt_chosen_stops: what a chosen STOP costs instead of the 250 (official units, before
+           scale). E4 (cost 0) showed free stopping makes trains stop and wait; below 50 serving a station
+           is still cheaper than skipping it (50).
+
+waiting_cost
+           Cost per step (official units, before scale) for every train that may travel but has not
+           arrived: any state except WAITING (before its earliest departure) and DONE. Lateness and not
+           arriving are otherwise charged only at arrival or episode end, hundreds of steps later; this
+           makes standing still cost something immediately (E4).
 """
 import numpy as np
 from flatland.envs.rail_env import RailEnvActions
@@ -33,10 +44,14 @@ STOP = RailEnvActions.STOP_MOVING.value  # 4; RailEnvActions is a plain Enum, so
 
 class RewardShaper:
     def __init__(self, scale: float = 0.01, progress: float = 0.0, exempt_chosen_stops: bool = False,
-                 gamma: float = 0.99):
+                 chosen_stop_cost: float = 0.0, waiting_cost: float = 0.0, gamma: float = 0.99):
+        if chosen_stop_cost and not exempt_chosen_stops:
+            raise ValueError("chosen_stop_cost replaces the 250 only when exempt_chosen_stops is on")
         self.scale = scale
         self.progress = progress
         self.exempt_chosen_stops = exempt_chosen_stops
+        self.chosen_stop_cost = chosen_stop_cost
+        self.waiting_cost = waiting_cost
         self.gamma = gamma
         self.exempted_halts = 0  # chosen STOPs whose COLLISION charge was removed this episode
         self._phi = {}
@@ -59,8 +74,10 @@ class RewardShaper:
             charged = total - self._collision[handle]  # this step's COLLISION penalty: 0 or negative
             self._collision[handle] = total
             if charged and action == STOP:
-                official -= charged
+                official -= charged + self.chosen_stop_cost
                 self.exempted_halts += 1
+        if self.waiting_cost and env.agents[handle].state not in (TrainState.WAITING, TrainState.DONE):
+            official -= self.waiting_cost
         reward = self.scale * official
         if self.progress:
             before = self._phi[handle]

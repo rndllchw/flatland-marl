@@ -126,6 +126,8 @@ def test_config_errors(tmp_path):
         train.load_config(path)
     with pytest.raises(ValueError, match="env.pool"):
         train.env_recipe({**train.DEFAULTS["env"], "source": "pool"})
+    with pytest.raises(ValueError, match="exempt_chosen_stops"):
+        train.load_config(write_config(tmp_path, reward={"chosen_stop_cost": 25}))
 
 
 ONE_TRAIN = functools.partial(make_env, scene="scene_1", n_agents=1, line_length=2)
@@ -174,20 +176,23 @@ def test_chosen_stop_is_free_in_training_but_still_charged_officially():
     env = ONE_TRAIN(seed=5000)
     env.reset()
     exempt, official_only = RewardShaper(scale=1.0, exempt_chosen_stops=True), RewardShaper(scale=1.0)
-    exempt.start(env)
-    official_only.start(env)
+    small_cost = RewardShaper(scale=1.0, exempt_chosen_stops=True, chosen_stop_cost=25)
+    shapers = (exempt, official_only, small_cost)
+    for shaper in shapers:
+        shaper.start(env)
     for _ in range(20):                                   # drive until moving
         if env.agents[0].state == TrainState.MOVING:
             break
         _, rewards, _, _ = env.step({0: FORWARD})
-        exempt(env, 0, rewards[0], FORWARD)
-        official_only(env, 0, rewards[0], FORWARD)
+        for shaper in shapers:
+            shaper(env, 0, rewards[0], FORWARD)
     assert env.agents[0].state == TrainState.MOVING
     _, rewards, _, _ = env.step({0: STOP})
     assert rewards[0] == -250                              # flatland charges the chosen STOP
     assert official_only(env, 0, rewards[0], STOP) == -250
     assert exempt(env, 0, rewards[0], STOP) == 0
-    assert exempt.exempted_halts == 1
+    assert small_cost(env, 0, rewards[0], STOP) == -25     # chosen_stop_cost replaces the 250
+    assert exempt.exempted_halts == 1 and small_cost.exempted_halts == 1
 
 
 def test_forced_halts_keep_their_charge():
@@ -223,6 +228,35 @@ def test_exemption_changes_the_training_reward_only():
     assert plain.exempted_halts == 0 and 0 < exempt.exempted_halts <= exempt.metrics["halts_while_moving"]
     stored = lambda r: sum(s.rewards.sum() for s in r.segments)  # noqa: E731
     assert stored(exempt) - stored(plain) == pytest.approx(250 * exempt.exempted_halts, rel=1e-5)
+
+
+def test_waiting_cost_charges_every_step_a_train_could_travel_but_has_not_arrived():
+    # One train driven home by the checkpoint (greedy), then a train that never departs. A step costs
+    # waiting_cost exactly when the train is past WAITING (earliest departure) and not DONE.
+    actor = make_actor(STARTER_KIT_CHECKPOINT)
+
+    def greedy(obs):
+        x = torch.from_numpy(obs)[None]
+        with torch.no_grad():
+            return int(masked_policy(actor(x[:, :OBS_SIZE])[0], x[:, OBS_SIZE:]).probs.argmax())
+
+    for drive in (greedy, lambda obs: 0):                  # 0 = do nothing: never departs
+        env = ONE_TRAIN(seed=5000)
+        obs, _ = env.reset()
+        shaper = RewardShaper(scale=1.0, waiting_cost=1.0)
+        shaper.start(env)
+        seen = set()
+        for _ in range(env._max_episode_steps):
+            action = drive(obs[0])
+            obs, rewards, dones, _ = env.step({0: action})
+            state = env.agents[0].state
+            charged = state not in (TrainState.WAITING, TrainState.DONE)
+            assert shaper(env, 0, rewards[0], action) - rewards[0] == (-1.0 if charged else 0.0)
+            seen.add(state)
+            if dones["__all__"]:
+                break
+        assert TrainState.WAITING in seen
+        assert (TrainState.DONE in seen) if drive is greedy else (seen == {TrainState.WAITING, TrainState.READY_TO_DEPART})
 
 
 # ppo.value_norm (25 Oct)

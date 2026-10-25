@@ -249,15 +249,75 @@ together from E4 on and identical for IPPO and MAPPO:
 |---|---|
 | `reward.exempt_chosen_stops: true` | the stop rule above; `train_log.csv` column `exempted_halts` = chosen STOPs not charged, per game |
 | `ppo.value_norm: true` | the critic learns returns standardised by their running mean/std (Yu et al., 2022); `train_log.csv` columns `return_mean`, `return_std` |
+| `reward.chosen_stop_cost: 25` (26 Oct, from E5) | with the exemption on, a chosen STOP costs 25 instead of 250 (below 50, so serving a station still beats skipping it) |
+| `reward.waiting_cost: 0.5` (26 Oct, from E5) | per step, for every train that may travel (past its earliest departure) but has not arrived |
 
-## E4: E3 with chosen STOPs unpenalised and value normalisation (planned)
+## E4: E3 with chosen STOPs unpenalised and value normalisation (25 Oct): failed
 
 - **Question:** with giving way no longer charged in training, do arrivals stop eroding, and do they beat
-  E3 and the checkpoint on validation?
-- **Config:** `configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml` = E3's config plus the two switches above;
-  same pool, budget and hyperparameters. Training seeds 0, 1, 2.
+  E3 and the checkpoint?
+- **Config:** `configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml` = E3's config plus `reward.exempt_chosen_stops`
+  and `ppo.value_norm`; same pool, budget and hyperparameters. Training seeds 0, 1, 2, commit `bafc37c`.
 - **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml --seed 0` (and 1, 2)
-- **Judge by:** validation arrivals on `pools/val_scene1_a5-10_ll2` against E3, checkpoint and heuristic,
-  with the same rule as E3 (iteration-100 snapshot = main number; paired bootstrap CIs). Note both switches
-  change at once, so E4 vs E3 cannot say which of the two caused a difference.
+- **Outputs (committed):** `results/e4_training/` (same layout as `results/e3_training/`).
+
+**Run health:** mechanically clean, like E3.
+
+| Seed | Iterations | Errors | Unattributed penalty | Lowest entropy | Largest `approx_kl` | Time (wall) |
+|---|---|---|---|---|---|---|
+| 0 | 100 | none | 0 | 0.57 | 0.008 | 30.6 min |
+| 1 | 100 | none | 0 | 0.57 | 0.009 | 32.5 min |
+| 2 | 100 | none | 0 | 0.54 | 0.015 | 28.9 min |
+
+(About twice E3's wall time: as the policy degrades, games run to the time limit.)
+
+**Greedy check, share of trains arrived** (16 fixed training-pool games per check; E3 for comparison):
+
+| After iteration | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E4 seed 0 | 38% | 53% | **67%** | 61% | 41% | 32% | 20% | 2% | 3% | 0% | 0% |
+| E4 seed 1 | 38% | 55% | **65%** | 63% | 61% | 41% | 35% | 27% | 27% | 27% | 26% |
+| E4 seed 2 | 38% | 51% | 50% | **76%** | 58% | 41% | 26% | 9% | 14% | 2% | 3% |
+| E4 seed 0, never departed | 0% | 0% | 0% | 3% | 28% | 59% | 67% | 57% | 76% | 100% | 82% |
+| E4 seed 2, never departed | 0% | 0% | 0% | 0% | 3% | 21% | 56% | 53% | 27% | 31% | 45% |
+| E3 seeds 0 / 1 / 2 at it 100 | | | | | | | | | | | 41% / 49% / 23% |
+
+(Seed 1 never-departed stayed at 0–4%: its trains departed but stood still on the map.)
+
+**Halts per training game (sampled actions):**
+
+| After iteration | 1 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Seed 0: halts / of which chosen STOPs (exempted) | 5 / 0 | 5 / 1 | 63 / 59 | 45 / 43 | 74 / 73 | 145 / 145 | 196 / 195 | 231 / 231 | 205 / 205 | 215 / 215 | 244 / 243 |
+| Seed 1 | 5 / 0 | 3 / 0 | 71 / 64 | 50 / 48 | 55 / 54 | 110 / 109 | 152 / 152 | 200 / 200 | 245 / 244 | 282 / 282 | 268 / 267 |
+| Seed 2 | 5 / 0 | 5 / 0 | 7 / 5 | 60 / 56 | 45 / 45 | 61 / 61 | 143 / 142 | 196 / 194 | 291 / 290 | 288 / 288 | 332 / 332 |
+
+(E3: halts fell from 4.6 to under 1 per game.)
+
+- **Conclusions:**
+  - **Removing the chosen-STOP charge made stopping free, and every seed learned to stop and wait.** Training
+    games reach 240–330 halts per game, almost all chosen; by iteration 100 greedy arrivals are 0–26%, below
+    E3 (23–49%) and the checkpoint (38% on these games). Seeds 0 and 2 slide into trains never departing (the
+    E1 failure mode); seed 1's trains depart and then stand still.
+  - **Cause:** once the 250 is gone, nothing charges a train *immediately* for standing still. Lateness and
+    not arriving are charged as lumps at arrival or at the episode's end, often hundreds of steps later, and
+    with γ = 0.99 a penalty 300 steps away weighs about 5%. So stopping looks nearly free to the critic.
+    Taking away an unfair penalty left no immediate cost for wasting time.
+  - **Before the slide, E4 peaks about as high as E3:** 65–76% arrived at iterations 20–30, vs E3's peaks of
+    60%, 68% and 79% (iterations 60, 90, 20). All three E4 seeds peak in the first 30 iterations; the
+    collapse comes after.
+  - Both switches changed at once. Exempted halts make up nearly all halts, which points at the exemption,
+    but value normalisation is not strictly ruled out.
+  - No validation evaluation: the failure is clear from the greedy checks.
+- **Next (decided 26 Oct): E5 = option 3**: keep the exemption but charge a small cost for a chosen STOP, plus
+  a small cost for every step a train has not yet arrived, so waiting costs something immediately.
+
+## E5: E4 plus a small chosen-STOP cost and a waiting cost (planned)
+
+- **Question:** does giving way stay cheap without trains learning to stop and wait (E4)?
+- **Config:** `configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml` = E4's config plus `reward.chosen_stop_cost: 25`
+  and `reward.waiting_cost: 0.5` (option 3, decided 26 Oct). Same pool, budget and hyperparameters. Seeds 0, 1, 2.
+- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml --seed 0` (and 1, 2)
+- **Judge by:** greedy-check arrivals against E3 and E4 (do they still erode? do trains stop departing?), then
+  validation on `pools/val_scene1_a5-10_ll2` with E3's rule if the runs look healthy.
 - **Status:** not run yet.

@@ -1,0 +1,13 @@
+{
+  "command": "python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml --seed 2",
+  "seed": 2,
+  "git": {
+    "commit": "bafc37cb8e4b5e3f8862d6384c902c3e7bae7ae7",
+    "uncommitted_changes": false
+  },
+  "versions": {
+    "flatland-rl": "4.2.6",
+    "torch": "2.9.1"
+  },
+  "date_utc": "2026-10-25T15:34:55+00:00"
+}
