@@ -87,7 +87,8 @@ Rerun any of them with `python scripts/train.py --config configs/<config> --seed
 - Training-log scores were misleading in E1 (0.53 while the greedy policy never moves), which is why the
   greedy check was added.
 - Next levers for from-scratch learning (not pursued yet): lower the initial STOP probability, or offset
-  the exploration STOP cost in training (touches the open team decision on the 250-per-stop rule).
+  the exploration STOP cost in training. **Decided 25 Oct:** from-scratch training is dropped; both IPPO
+  and MAPPO warm-start from the organisers' checkpoint (see "Team decisions" below).
 
 ## E3: warm-started IPPO on interacting trains (started 21 Oct)
 
@@ -146,9 +147,10 @@ Rerun any of them with `python scripts/train.py --config configs/<config> --seed
     coordination, which works against measuring whether MAPPO coordinates better.
   - Caveats: one training seed; iteration 60 was picked using these validation scenarios, so its numbers
     are optimistic (needs the frozen test set); CIs cover scenario variation only, not training seeds.
-- **Open decision this raises (team):** for the IPPO vs MAPPO comparison, train on the official reward
-  (and accept that "don't stop" wins), or train with chosen STOPs not penalised (the trainer knows which
-  halts followed a STOP action) while still *reporting* official scores and arrivals.
+- **Decision this raised:** for the IPPO vs MAPPO comparison, train on the official reward (and accept
+  that "don't stop" wins), or train with chosen STOPs not penalised while still *reporting* official
+  scores and arrivals. **Decided 25 Oct: the second** (see "Team decisions" below). E3 stays as the
+  official-reward comparison.
 
 ### E3 repeated with training seeds 1 and 2 (21 Oct)
 
@@ -230,5 +232,32 @@ Halts per game fell from 4.6 to under 1 in every seed and stayed there.
   - The best early snapshots (68% arrived) are promising but selected on validation; only a frozen test set
     can confirm them.
 - **Possible next steps:** smaller learning rate or fewer PPO epochs per iteration (stability); snapshot
-  selection by validation; the team's stop-rule decision (the swings between "go" and "stay put" are what
-  the 250-per-stop penalty encourages).
+  selection by validation; train with chosen STOPs unpenalised (decided 25 Oct; the swings between "go"
+  and "stay put" are what the 250-per-stop penalty encourages).
+
+## Team decisions (25 Oct)
+
+| Decision | What it means for every later run |
+|---|---|
+| **Warm start for both arms** | IPPO and MAPPO both start from the organisers' `checkpoint.pt`. From-scratch training (E1–E2) is not part of the comparison. |
+| **Stop rule: train without the chosen-STOP penalty, report official** | The training reward does not charge the 250 for a halt that follows the train's own STOP action; halts forced by being blocked still cost 250. Every reported number uses the official reward, with arrivals first and the score next to it. Same training reward for IPPO and MAPPO. E3 (trained on the official reward) is the comparison that shows what the rule does to learning. |
+
+Implemented 25 Oct as two config switches (both default off, so earlier configs rerun unchanged), used
+together from E4 on and identical for IPPO and MAPPO:
+
+| Switch | What it does |
+|---|---|
+| `reward.exempt_chosen_stops: true` | the stop rule above; `train_log.csv` column `exempted_halts` = chosen STOPs not charged, per game |
+| `ppo.value_norm: true` | the critic learns returns standardised by their running mean/std (Yu et al., 2022); `train_log.csv` columns `return_mean`, `return_std` |
+
+## E4: E3 with chosen STOPs unpenalised and value normalisation (planned)
+
+- **Question:** with giving way no longer charged in training, do arrivals stop eroding, and do they beat
+  E3 and the checkpoint on validation?
+- **Config:** `configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml` = E3's config plus the two switches above;
+  same pool, budget and hyperparameters. Training seeds 0, 1, 2.
+- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_nostop.yaml --seed 0` (and 1, 2)
+- **Judge by:** validation arrivals on `pools/val_scene1_a5-10_ll2` against E3, checkpoint and heuristic,
+  with the same rule as E3 (iteration-100 snapshot = main number; paired bootstrap CIs). Note both switches
+  change at once, so E4 vs E3 cannot say which of the two caused a difference.
+- **Status:** not run yet.

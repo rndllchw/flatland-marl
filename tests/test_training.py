@@ -2,20 +2,25 @@
 
 These check the training logic is correct, not that it learns well (see configs/ippo_debug.yaml).
 """
+import copy
+import dataclasses
 import functools
+import math
 import sys
 
 import numpy as np
 import pytest
 import torch
 import yaml
+from flatland.envs.step_utils.states import TrainState
 
 from flatmarl import ROOT, STARTER_KIT
 from flatmarl.envs import load_scenario, make_env
-from flatmarl.metrics import PENALTY_TYPES
+from flatmarl.metrics import PENALTY_TYPES, episode_metrics
 from flatmarl.models import OBS_SIZE, make_actor, masked_policy
 from flatmarl.policies import STARTER_KIT_CHECKPOINT, make_policy
-from flatmarl.ppo import gae, make_batch, ppo_update
+from flatmarl.ppo import ValueNormalizer, gae, make_batch, ppo_update
+from flatmarl.reward import RewardShaper
 from flatmarl.rollout import collect_episode
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -158,3 +163,106 @@ def test_train_writes_greedy_checks_and_overwrite_starts_fresh_logs(tmp_path):
     eval_rows = (out / "eval_log.csv").read_text().strip().splitlines()
     assert [r.split(",")[0] for r in eval_rows[1:]] == ["0", "1", "2"]       # before training + each save
     assert len((out / "train_log.csv").read_text().strip().splitlines()) == 1 + 2   # not appended to the old run
+
+
+# reward.exempt_chosen_stops (team decision, 25 Oct)
+
+STOP, FORWARD = 4, 2
+
+
+def test_chosen_stop_is_free_in_training_but_still_charged_officially():
+    env = ONE_TRAIN(seed=5000)
+    env.reset()
+    exempt, official_only = RewardShaper(scale=1.0, exempt_chosen_stops=True), RewardShaper(scale=1.0)
+    exempt.start(env)
+    official_only.start(env)
+    for _ in range(20):                                   # drive until moving
+        if env.agents[0].state == TrainState.MOVING:
+            break
+        _, rewards, _, _ = env.step({0: FORWARD})
+        exempt(env, 0, rewards[0], FORWARD)
+        official_only(env, 0, rewards[0], FORWARD)
+    assert env.agents[0].state == TrainState.MOVING
+    _, rewards, _, _ = env.step({0: STOP})
+    assert rewards[0] == -250                              # flatland charges the chosen STOP
+    assert official_only(env, 0, rewards[0], STOP) == -250
+    assert exempt(env, 0, rewards[0], STOP) == 0
+    assert exempt.exempted_halts == 1
+
+
+def test_forced_halts_keep_their_charge():
+    # Scene 1, 4 trains, seed 0, everyone driving forward: one train is halted by being blocked
+    # (found 25 Oct). No STOP is ever pressed, so the exemption must change nothing.
+    env = make_env(scene="scene_1", n_agents=4, line_length=2, seed=0)
+    env.reset()
+    shaper = RewardShaper(scale=1.0, exempt_chosen_stops=True)
+    shaper.start(env)
+    official = training = 0.0
+    while True:
+        actions = {h: FORWARD for h in env.get_agent_handles()}
+        _, rewards, dones, _ = env.step(actions)
+        for h in actions:
+            official += rewards[h]
+            training += shaper(env, h, rewards[h], actions[h])
+        if dones["__all__"]:
+            break
+    assert episode_metrics(env).halts_while_moving >= 1
+    assert shaper.exempted_halts == 0 and training == official
+
+
+def test_exemption_changes_the_training_reward_only():
+    # Same actor and seed with and without the exemption: identical actions, so identical official
+    # metrics; the stored training rewards differ by exactly 250 per exempted halt (gamma 1, scale 1).
+    env_fn = functools.partial(load_scenario, SAMPLE, disruption="breakdowns")
+    state = state_of(make_actor())
+    plain = collect_episode((env_fn, state, 3, {"scale": 1.0}, 1.0))
+    exempt = collect_episode((env_fn, state, 3, {"scale": 1.0, "exempt_chosen_stops": True}, 1.0))
+    same = lambda a, b: a == b or (isinstance(a, float) and math.isnan(a) and math.isnan(b))  # noqa: E731
+    assert plain.metrics.keys() == exempt.metrics.keys()
+    assert all(same(plain.metrics[k], exempt.metrics[k]) for k in plain.metrics)
+    assert plain.exempted_halts == 0 and 0 < exempt.exempted_halts <= exempt.metrics["halts_while_moving"]
+    stored = lambda r: sum(s.rewards.sum() for s in r.segments)  # noqa: E731
+    assert stored(exempt) - stored(plain) == pytest.approx(250 * exempt.exempted_halts, rel=1e-5)
+
+
+# ppo.value_norm (25 Oct)
+
+def test_value_normalizer_matches_numpy_over_batches():
+    rng = np.random.default_rng(0)
+    norm = ValueNormalizer()
+    assert norm.denormalize(np.array([1.5])) == pytest.approx([1.5])   # identity before the first update
+    batches = [rng.normal(-3, 5, n) for n in (10, 1, 250)]
+    for b in batches:
+        norm.update(b)
+    everything = np.concatenate(batches)
+    assert norm.mean == pytest.approx(everything.mean()) and norm.std == pytest.approx(everything.std())
+    x = rng.normal(size=5)
+    assert norm.denormalize(norm.normalize(x)) == pytest.approx(x, abs=1e-5)
+
+
+def test_make_batch_normalises_targets_and_denormalises_values(episode):
+    plain = make_batch([episode], 0.95)
+    norm = ValueNormalizer()
+    first = make_batch([episode], 0.95, norm)
+    assert torch.allclose(first.advantages, plain.advantages)          # identity stats: same GAE
+    assert norm.mean == pytest.approx(plain.returns.mean().item(), rel=1e-4)
+    assert first.returns.mean().item() == pytest.approx(0, abs=1e-4)
+    assert first.returns.std(unbiased=False).item() == pytest.approx(1, abs=1e-4)
+    # Later batches: the recorded values are the critic's normalised outputs, so GAE must use
+    # value * std + mean.
+    before = copy.deepcopy(norm)
+    second = make_batch([episode], 0.95, norm)
+    in_reward_units = dataclasses.replace(episode, segments=[dataclasses.replace(s, values=before.denormalize(s.values))
+                                                             for s in episode.segments])
+    assert torch.allclose(second.advantages, make_batch([in_reward_units], 0.95).advantages, atol=1e-4)
+
+
+def test_train_with_exemption_and_value_norm(tmp_path):
+    out = tmp_path / "run"
+    config = write_config(tmp_path, reward={"exempt_chosen_stops": True}, ppo={"value_norm": True})
+    train.main(["--config", str(config), "--seed", "0", "--out", str(out)])
+    header = (out / "train_log.csv").read_text().splitlines()[0].split(",")
+    assert {"exempted_halts", "return_mean", "return_std"} <= set(header)
+    assert set(torch.load(out / "actor.pt")) == {"model"}                # still a starter-kit checkpoint
+    policy, _ = make_policy(f"actor:{out / 'actor.pt'}")
+    assert policy is not None

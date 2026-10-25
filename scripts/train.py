@@ -9,6 +9,7 @@ Writes runs/<name>_s<seed>/:
     config.yaml     the full config used (defaults filled in)
     run.json        command, git commit, versions
     train_log.csv   one row per iteration: official metrics of the (sampled) training games + PPO stats
+                    (+ exempted_halts per game; return_mean/return_std when ppo.value_norm is on)
     eval_log.csv    greedy check: the actor playing its top action, as evaluate.py does, on the same
                     fixed games each time; at iteration 0 (before training) and at every save
     actor.pt        latest actor, as {"model": state_dict}; also actor_<iteration>.pt snapshots
@@ -37,7 +38,7 @@ import yaml
 from flatmarl import ROOT
 from flatmarl.envs import make_env, make_pool_env
 from flatmarl.models import check_critic, make_actor, save_actor
-from flatmarl.ppo import make_batch, ppo_update
+from flatmarl.ppo import ValueNormalizer, make_batch, ppo_update
 from flatmarl.rollout import collect_episode
 
 DEFAULTS = {
@@ -45,9 +46,9 @@ DEFAULTS = {
     "critic": "local",
     "env": {"source": "make_env", "scene": "scene_1", "n_agents": 10, "line_length": 2,
             "disruption": "none", "pool": None},
-    "reward": {"scale": 0.01, "progress": 0.0},
+    "reward": {"scale": 0.01, "progress": 0.0, "exempt_chosen_stops": False},
     "ppo": {"gamma": 0.99, "gae_lambda": 0.95, "clip": 0.2, "epochs": 4, "minibatch_size": 512,
-            "lr": 3e-4, "entropy_coef": 0.01, "value_coef": 0.5, "max_grad_norm": 0.5},
+            "lr": 3e-4, "entropy_coef": 0.01, "value_coef": 0.5, "max_grad_norm": 0.5, "value_norm": False},
     "train": {"iterations": 50, "episodes_per_iteration": 16, "workers": 1, "init_checkpoint": None,
               "save_every": 10, "eval_episodes": 8},
 }
@@ -138,6 +139,7 @@ def main(argv=None):
     optimizer = torch.optim.Adam(actor.parameters(), lr=cfg["ppo"]["lr"])
     recipe = env_recipe(cfg["env"])
     train, ppo = cfg["train"], cfg["ppo"]
+    normalizer = ValueNormalizer() if ppo["value_norm"] else None
 
     workers = multiprocessing.get_context("spawn").Pool(train["workers"]) if train["workers"] > 1 else None
     log_path, decisions_total = run_dir / "train_log.csv", 0
@@ -172,7 +174,7 @@ def main(argv=None):
             jobs = [(recipe, state, int(s), cfg["reward"], ppo["gamma"]) for s in seeds]
             results = run_jobs(jobs)
 
-            batch = make_batch(results, ppo["gae_lambda"])
+            batch = make_batch(results, ppo["gae_lambda"], normalizer)
             stats = ppo_update(actor, optimizer, batch, ppo, generator)
             decisions_total += len(batch.actions)
 
@@ -185,8 +187,10 @@ def main(argv=None):
                 "completion_rate": mean([e["completion_rate"] for e in episodes]),
                 "stop_service_rate": mean([e["stop_service_rate"] for e in episodes]),
                 "halts_while_moving": mean([e["halts_while_moving"] for e in episodes]),
+                "exempted_halts": mean([r.exempted_halts for r in results]),
                 "unattributed_reward": sum(r.unattributed for r in results),
                 **stats,
+                **({"return_mean": normalizer.mean, "return_std": normalizer.std} if normalizer else {}),
                 "seconds": round(time.time() - start, 2),
             }
             append_csv(log_path, row)

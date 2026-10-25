@@ -3,14 +3,55 @@
 IPPO: one shared actor for all trains; its value head is the critic and sees only the train's own
 observation. MAPPO (Member 3) would replace `values` below with a central critic's estimates from a
 summary of all trains (obs.py), and train that critic instead of the actor's value head.
-Extension points for Member 2 are marked "Member 2:".
+
+Value-target normalisation (ppo.value_norm, default off; on for both arms from 25 Oct): the critic
+learns returns standardised by a running mean/std (ValueNormalizer), as recommended for PPO/MAPPO by
+Yu et al. (2022). Its outputs are converted back to reward units before GAE, so advantages are unchanged
+in meaning. The stats are not saved with the actor (evaluation never uses the value head); train.py
+logs them per iteration.
 """
+import math
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 
 from flatmarl.models import OBS_SIZE, masked_policy
+
+
+class ValueNormalizer:
+    """Running mean and standard deviation of every value target seen so far. Before the first update
+    it is the identity (mean 0, std 1)."""
+
+    def __init__(self):
+        self.count = 0
+        self.mean = 0.0
+        self.var = 1.0
+
+    @property
+    def std(self) -> float:
+        return math.sqrt(self.var) + 1e-8
+
+    def update(self, x: np.ndarray):
+        """Merge a batch into the running stats (Chan et al.'s parallel update; exact, not a moving average)."""
+        n = len(x)
+        if n == 0:
+            return
+        batch_mean, batch_var = float(np.mean(x)), float(np.var(x))
+        if self.count == 0:
+            self.count, self.mean, self.var = n, batch_mean, batch_var
+            return
+        total = self.count + n
+        delta = batch_mean - self.mean
+        self.mean += delta * n / total
+        self.var = (self.var * self.count + batch_var * n + delta ** 2 * self.count * n / total) / total
+        self.count = total
+
+    def normalize(self, x: np.ndarray) -> np.ndarray:
+        return ((x - self.mean) / self.std).astype(np.float32)
+
+    def denormalize(self, x: np.ndarray) -> np.ndarray:
+        return (x * self.std + self.mean).astype(np.float32)
 
 
 def gae(rewards: np.ndarray, values: np.ndarray, discounts: np.ndarray, lam: float):
@@ -40,16 +81,25 @@ class Batch:
     returns: torch.Tensor      # (N,) value targets
 
 
-def make_batch(results, lam: float) -> Batch:
-    """All trains' decisions from a list of EpisodeResult, with advantages computed per train."""
+def make_batch(results, lam: float, normalizer: ValueNormalizer | None = None) -> Batch:
+    """All trains' decisions from a list of EpisodeResult, with advantages computed per train.
+
+    With a normalizer: the recorded values are the critic's normalised outputs, so they are converted
+    to reward units for GAE; then the normalizer is updated with this batch's returns and the value
+    targets are returned normalised."""
     parts = {"obs": [], "actions": [], "logprobs": [], "advantages": [], "returns": []}
     for result in results:
         for s in result.segments:
-            advantages, returns = gae(s.rewards, s.values, s.discounts, lam)
+            values = s.values if normalizer is None else normalizer.denormalize(s.values)
+            advantages, returns = gae(s.rewards, values, s.discounts, lam)
             for key, value in (("obs", s.obs), ("actions", s.actions), ("logprobs", s.logprobs),
                                ("advantages", advantages), ("returns", returns)):
                 parts[key].append(value)
-    return Batch(**{k: torch.from_numpy(np.concatenate(v)) for k, v in parts.items()})
+    arrays = {k: np.concatenate(v) for k, v in parts.items()}
+    if normalizer is not None:
+        normalizer.update(arrays["returns"])
+        arrays["returns"] = normalizer.normalize(arrays["returns"])
+    return Batch(**{k: torch.from_numpy(v) for k, v in arrays.items()})
 
 
 def ppo_update(actor, optimizer, batch: Batch, cfg: dict, generator: torch.Generator) -> dict:
@@ -71,7 +121,7 @@ def ppo_update(actor, optimizer, batch: Batch, cfg: dict, generator: torch.Gener
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             clipped = ratio.clamp(1 - cfg["clip"], 1 + cfg["clip"])
             policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
-            # Member 2: value-target normalisation (running mean/std of returns) goes here.
+            # batch.returns is already normalised when ppo.value_norm is on (make_batch)
             value_loss = 0.5 * (values - batch.returns[idx]).pow(2).mean()
             entropy = dist.entropy().mean()
             loss = policy_loss + cfg["value_coef"] * value_loss - cfg["entropy_coef"] * entropy

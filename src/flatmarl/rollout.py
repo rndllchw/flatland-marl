@@ -39,6 +39,7 @@ class EpisodeResult:
     segments: list
     metrics: dict          # episode_metrics(env).as_row(): official numbers, for logging
     unattributed: float    # |official reward| that reached no decision (should be 0)
+    exempted_halts: int = 0  # chosen STOPs not charged in training (reward.exempt_chosen_stops)
 
 
 def collect_episode(job) -> EpisodeResult:
@@ -87,7 +88,7 @@ def collect_episode(job) -> EpisodeResult:
         for h in handles:
             r = rec[h]
             if r["steps"]:
-                r["rewards"][-1] += gamma ** r["steps"][-1] * shaper(env, h, rewards[h])
+                r["rewards"][-1] += gamma ** r["steps"][-1] * shaper(env, h, rewards[h], actions[h])
                 r["steps"][-1] += 1
             else:
                 unattributed += abs(rewards[h])
@@ -101,4 +102,5 @@ def collect_episode(job) -> EpisodeResult:
                         rewards=np.array(r["rewards"], dtype=np.float32),
                         discounts=(gamma ** np.array(r["steps"], dtype=np.float64)).astype(np.float32))
                 for r in rec.values() if r["actions"]]
-    return EpisodeResult(segments=segments, metrics=episode_metrics(env).as_row(), unattributed=unattributed)
+    return EpisodeResult(segments=segments, metrics=episode_metrics(env).as_row(), unattributed=unattributed,
+                         exempted_halts=shaper.exempted_halts)

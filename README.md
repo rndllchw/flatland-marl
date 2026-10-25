@@ -200,8 +200,8 @@ save. `train.init_checkpoint` and `env.pool` paths are relative to the repo root
 |---|---|---|
 | `src/flatmarl/models.py` | actor (the starter kit's `ActorCritic`), masked action sampling | `check_critic`: central critic (Member 3) |
 | `src/flatmarl/rollout.py` | play one episode; records only real decisions; credits every reward to the train's latest decision | — |
-| `src/flatmarl/ppo.py` | GAE advantages, clipped PPO update | value-target normalisation (Member 2); central-critic values (Member 3) |
-| `src/flatmarl/reward.py` | official reward × scale; optional `progress` shaping (potential-based, towards the destination) | more shaping terms (Member 4) |
+| `src/flatmarl/ppo.py` | GAE advantages, clipped PPO update; optional value-target normalisation (`ppo.value_norm`, running mean/std of returns) | central-critic values (Member 3) |
+| `src/flatmarl/reward.py` | official reward × scale; optional `progress` shaping (potential-based, towards the destination); optional `exempt_chosen_stops` | more shaping terms (Member 4) |
 | `scripts/train.py`, `configs/` | config + seed → run folder | curriculum schedule (Member 4) |
 
 **Status of learning (19 Oct), one-train sanity task, seed 0, 30 iterations, greedy check:**
@@ -230,7 +230,9 @@ official reward.
 env.step() ──▶ official reward per train
                  ├──▶ metrics.py  (RecordingRewards) ──▶ score, arrivals, penalty breakdown   ← what we REPORT
                  └──▶ reward.py   (RewardShaper)     ──▶ training reward                      ← what PPO LEARNS FROM
-                                                        = official × reward.scale (+ reward.progress shaping)
+                                                        = (official, minus the 250 for a chosen STOP if
+                                                           reward.exempt_chosen_stops) × reward.scale
+                                                          (+ reward.progress shaping)
 ```
 
 The training reward is computed only inside `rollout.py`; `evaluate.py` and `episode_metrics` never see it.
@@ -239,7 +241,7 @@ The training reward is computed only inside `rollout.py`; `evaluate.py` and `epi
 |---|---|---|
 | Numbers too big: −250 makes the critic's targets large and learning unstable | `reward.scale` (default 0.01): −250 becomes −2.5 | No: every reward shrinks equally |
 | Feedback too late: most penalties arrive at arrival or episode end, hundreds of steps after the decisions that caused them | `reward.progress`: a small reward for each cell closer to the destination | No: it is potential-based shaping (Ng et al., 1999), the same signal given earlier |
-| Rewards the wrong behaviour: a chosen STOP costs 250, so policies learn not to give way and to skip stations | not built yet: leave chosen STOPs unpenalised in training | **Yes**: a team decision, and a stated design choice in the report |
+| Rewards the wrong behaviour: a chosen STOP costs 250, so policies learn not to give way and to skip stations | `reward.exempt_chosen_stops` (decided 25 Oct): a halt in a step where the train chose STOP is not charged; halts forced by being blocked still cost 250. Logged per game as `exempted_halts` in `train_log.csv` | **Yes**: a stated design choice in the report |
 
 **Rules:**
 
@@ -360,7 +362,8 @@ validation scenarios):** after 100 iterations the official score rises from 0.52
 (−7%, CI −14% to −1%), against the heuristic's 86%. The score gain is fewer halts. Arrivals peak early
 (two of three seeds are best at iteration 20, 68% arrived on average) and erode with further training:
 giving way means stopping, and stopping costs 250, so the official score rewards *less* coordination.
-How training should treat chosen stops is an open team decision. Networks and logs:
+**Decided 25 Oct:** from here on, both IPPO and MAPPO warm-start from the checkpoint and train without the
+250 for a chosen STOP (forced halts still cost 250); all reported numbers stay official. Networks and logs:
 `results/e3_training/`; validation results: `results/e3_val_seeds/`.
 
 ## Notes
