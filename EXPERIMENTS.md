@@ -312,12 +312,80 @@ together from E4 on and identical for IPPO and MAPPO:
 - **Next (decided 26 Oct): E5 = option 3**: keep the exemption but charge a small cost for a chosen STOP, plus
   a small cost for every step a train has not yet arrived, so waiting costs something immediately.
 
-## E5: E4 plus a small chosen-STOP cost and a waiting cost (planned)
+## E5: E4 plus a small chosen-STOP cost and a waiting cost (25–26 Oct)
 
 - **Question:** does giving way stay cheap without trains learning to stop and wait (E4)?
 - **Config:** `configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml` = E4's config plus `reward.chosen_stop_cost: 25`
-  and `reward.waiting_cost: 0.5` (option 3, decided 26 Oct). Same pool, budget and hyperparameters. Seeds 0, 1, 2.
-- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml --seed 0` (and 1, 2)
-- **Judge by:** greedy-check arrivals against E3 and E4 (do they still erode? do trains stop departing?), then
-  validation on `pools/val_scene1_a5-10_ll2` with E3's rule if the runs look healthy.
-- **Status:** not run yet.
+  and `reward.waiting_cost: 0.5` (option 3, decided 26 Oct). Same pool, budget and hyperparameters. Training
+  seeds 0, 1, 2, commit `1d221b1`.
+- **Rerun:**
+  ```bash
+  python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml --seed 0   # and 1, 2
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none \
+      --policies actor:results/e5_training/seed_0/actor_10.pt ... actor:results/e5_training/seed_2/actor_100.pt \
+      --out results/e5_val_seeds --workers 10        # all 30 snapshots; full list in results/e5_val_seeds/run.json
+  ```
+- **Outputs (committed):** `results/e5_training/` (networks + logs, same layout as E3/E4) and `results/e5_val_seeds/`
+  (`episodes.csv`, `trains.csv`, `run.json`, `summary_by_snapshot.csv`).
+
+**Run health:** clean, like E3 and E4.
+
+| Seed | Iterations | Errors | Unattributed penalty | Entropy (min–max) | Largest `approx_kl` | Time (wall) |
+|---|---|---|---|---|---|---|
+| 0 | 100 | none | 0 | 0.57–0.67 | 0.008 | 29.9 min |
+| 1 | 100 | none | 0 | 0.56–0.68 | 0.008 | 30.6 min |
+| 2 | 100 | none | 0 | 0.54–0.68 | 0.008 | 27.9 min |
+
+**The E4 failure is gone.** Halts per training game fall from about 5 (first 10 iterations) to 1.3–1.7 (last 10),
+of which about 1 is a chosen STOP; E4 climbed to 240–330. Arrivals in the training games (sampled actions,
+mean of the last 10 iterations, ~320 games) rise in every seed: **57% / 62% / 60%**, from ~45%; E3 ended at
+39% / 46% / 37%.
+
+**Validation** (50 scenarios, no disruptions; same rule as E3, fixed before looking: main number = each seed's
+iteration-100 snapshot; secondary = each seed's best snapshot by validation arrivals; differences paired per
+scenario, 95% bootstrap CI over scenarios). Arrivals by iteration:
+
+| After iteration | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Seed 0 | 52% | 58% | 57% | 61% | 66% | 63% | 65% | 38% | 64% | 12% |
+| Seed 1 | 58% | 62% | 56% | 47% | 69% | 53% | 61% | 35% | 75% | 76% |
+| Seed 2 | 52% | 59% | 56% | 49% | 72% | 47% | 62% | 72% | 72% | 40% |
+| **E5 mean of seeds** | 54% | 59% | 56% | 53% | 69% | 55% | 63% | 48% | 70% | 43% |
+| E3 mean of seeds | 50% | 62% | 47% | 52% | 42% | 40% | 40% | 53% | 51% | 38% |
+
+(Checkpoint 45%, heuristic 86%. Mean over all 30 snapshots: E5 57%, E3 48%. Never departed: seed 0 14% at
+it 80 and **71% at it 100**; seed 1 29% at it 80; otherwise 0–5%.)
+
+**Main result, final snapshots (unbiased):**
+
+| | Score | Arrived | Halts | vs checkpoint: score | vs checkpoint: arrived |
+|---|---|---|---|---|---|
+| Seed 0, it 100 | 0.307 | 12% | 0.0 | −0.21 [−0.27, −0.16] | −34% [−42, −26] |
+| Seed 1, it 100 | 0.843 | **76%** | 1.7 | +0.32 [+0.26, +0.39] | **+31% [+23, +38]** |
+| Seed 2, it 100 | 0.699 | 40% | 1.0 | +0.18 [+0.13, +0.23] | −5% [−11, 0] |
+| **Mean of seeds** | **0.616** (sd 0.277) | **43%** (sd 32%) | 0.9 | +0.10 [+0.05, +0.15] | −3% [−9, +3] |
+
+Mean of seeds vs heuristic: score −0.02 [−0.07, +0.03], arrived −43% [−48, −38]. vs E3 (iteration 100, mean of
+seeds): score −0.16 [−0.19, −0.14], arrived **+5% [+2, +7]**.
+
+**Secondary, best snapshot per seed by validation arrivals (optimistic):** iterations 50, 100, 80. Mean score
+0.835 (sd 0.014), arrived **72%** (sd 5%): vs checkpoint +26% [+20, +33], vs heuristic −14% [−20, −9], vs E3's
+final snapshots +33% [+30, +37]. (E3's best snapshots: 68%.) Chosen from 10 snapshots on these same scenarios.
+
+- **Conclusions:**
+  - **The costs fix E4.** With a chosen STOP at 25 and waiting at 0.5 per step, trains no longer learn to stop
+    and wait, and arrivals no longer erode with training: on validation E5 is above E3 at 8 of 10 snapshots
+    (mean over all snapshots 57% vs 48%), and in the training games every seed ends higher than it started.
+  - **Training is now unstable rather than misdirected.** Seed 0's final snapshot relapsed into trains never
+    departing (71%) after sitting at 61–66% for most of training; seeds 0 and 1 also dipped at iteration 80
+    (14% / 29% never departed) and recovered. A single stretch of updates can flip a good policy into "stay
+    put" (also seen in E3 seed 2 and all of E4). Because of seed 0, the unbiased final mean (43%) is only
+    slightly above E3 (+5%) and level with the checkpoint, with a very large spread across seeds (sd 32%).
+  - **Best result so far:** seed 1's final snapshot, 76% arrived (+31% vs checkpoint), still below the
+    heuristic (86%). The best-by-validation snapshots average 72%, but that number is optimistic.
+  - **Giving way is still rare:** about 1 chosen STOP per game against the heuristic's 6.5 halts. The gain
+    comes from not drifting into "don't move", not yet from coordination.
+  - The official score is lower than E3's (0.62 vs 0.78) because E3 scored by never stopping; judge by arrivals.
+  - Caveats: 16-game greedy checks during training are too noisy to pick snapshots; CIs cover scenario
+    variation only, not training seeds.
+- **Next:** stabilise training before MAPPO (team discussion 26 Oct).

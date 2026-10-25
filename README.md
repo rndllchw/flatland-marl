@@ -322,10 +322,13 @@ src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a r
 scripts/make_scenario_pool.py  ✅ pre-generate scenario pools (parallel, resumable)
 tests/test_pool.py             ✅ 7 tests for pools
 src/flatmarl/{models,rollout,ppo,reward}.py, scripts/train.py, configs/   ✅ IPPO framework (learning: see Training)
-tests/test_training.py         ✅ 11 tests for the training framework
+tests/test_training.py         ✅ 18 tests for the training framework
 EXPERIMENTS.md                 ✅ experiment log: every run, how to rerun it, results, conclusions
 results/e3_training/           ✅ E3 trained networks (every 10 iterations) and logs, seeds 0–2
 results/e3_val_seeds/          ✅ E3 validation of all 30 snapshots (+ summary_by_snapshot.csv)
+results/e4_training/           ✅ E4 networks and logs (failed run: free STOPs → stop and wait)
+results/e5_training/           ✅ E5 networks and logs, seeds 0–2
+results/e5_val_seeds/          ✅ E5 validation of all 30 snapshots (+ summary_by_snapshot.csv)
 src/flatmarl/obs.py + central critic   ⬜ MAPPO (Member 3)
 ```
 
@@ -368,6 +371,14 @@ giving way means stopping, and stopping costs 250, so the official score rewards
 **Decided 25 Oct:** from here on, both IPPO and MAPPO warm-start from the checkpoint and train without the
 250 for a chosen STOP (forced halts still cost 250); all reported numbers stay official. Networks and logs:
 `results/e3_training/`; validation results: `results/e3_val_seeds/`.
+
+**Training without the 250 for a chosen STOP (E4, E5 in `EXPERIMENTS.md`):** making a chosen STOP free (E4)
+backfired: every seed learned to stop and wait (240–330 halts per training game; final arrivals 0–26%),
+because lateness and not arriving are only charged at the end. Charging a chosen STOP 25 and every step not
+yet arrived 0.5 (E5) fixed that: arrivals no longer erode (validation mean over all snapshots 57% vs E3's 48%;
+best final snapshot 76%). But training is unstable: one seed's final snapshot relapsed into trains never
+departing (12% arrived), so the unbiased final mean is 43% (+5% [+2, +7] vs E3, level with the checkpoint).
+Next: stabilise training before MAPPO. Networks and logs: `results/e5_training/`; validation: `results/e5_val_seeds/`.
 
 ## Notes
 
