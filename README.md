@@ -195,10 +195,16 @@ rejected. Each run writes `runs/<name>_s<seed>/`: `actor.pt` (plus snapshots), `
 per iteration: official score, arrivals, stops served, halts, PPO stats), `eval_log.csv`, `config.yaml`,
 `run.json`. Same config + seed gives identical weights, whatever the number of workers.
 
-**Judge progress by `eval_log.csv`, not `train_log.csv`.** Training games use sampled actions, which can
-make a policy that never moves look half-decent. The greedy check plays the actor's top action (as
-`evaluate.py` does) on the same 8 games each time (`train.eval_episodes`), at iteration 0 and at every
-save. `train.init_checkpoint` and `env.pool` paths are relative to the repo root.
+**Judge progress by `eval_log.csv`, not `train_log.csv`** (and judge results by validation with
+`evaluate.py` + `scripts/val_analysis.py`). The quick check plays the same games each time
+(`train.eval_episodes`, default 8), at iteration 0 and at every save: `train.eval_mode: greedy` (default)
+plays the top action; `sampled` draws actions from the policy, like the main evaluation since 26 Oct (use it
+for new configs; greedy checks misread E3–E5, see `EXPERIMENTS.md`). `train.init_checkpoint` and `env.pool`
+paths are relative to the repo root.
+
+**Training budget** (decided 26 Oct): `train.iterations` × `train.episodes_per_iteration` training games, the
+same for IPPO and MAPPO; final runs use 200 × 32. `train_log.csv` records `decisions` and `agent_steps`
+(env steps × trains) per iteration, with running totals, so the report can state both.
 
 | File | Role | Extension point |
 |---|---|---|
@@ -327,7 +333,7 @@ src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a r
 scripts/make_scenario_pool.py  ✅ pre-generate scenario pools (parallel, resumable)
 tests/test_pool.py             ✅ 7 tests for pools
 src/flatmarl/{models,rollout,ppo,reward}.py, scripts/train.py, configs/   ✅ IPPO framework (learning: see Training)
-tests/test_training.py         ✅ 18 tests for the training framework
+tests/test_training.py         ✅ 20 tests for the training framework
 EXPERIMENTS.md                 ✅ experiment log: every run, how to rerun it, results, conclusions
 results/e3_training/           ✅ E3 trained networks (every 10 iterations) and logs, seeds 0–2
 results/e3_val_seeds/          ✅ E3 validation of all 30 snapshots (+ summary_by_snapshot.csv)

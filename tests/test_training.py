@@ -3,6 +3,7 @@
 These check the training logic is correct, not that it learns well (see configs/ippo_debug.yaml).
 """
 import copy
+import csv
 import dataclasses
 import functools
 import math
@@ -300,3 +301,27 @@ def test_train_with_exemption_and_value_norm(tmp_path):
     assert set(torch.load(out / "actor.pt")) == {"model"}                # still a starter-kit checkpoint
     policy, _ = make_policy(f"actor:{out / 'actor.pt'}")
     assert policy is not None
+
+
+# Training budget and eval_mode (26 Oct)
+
+def test_agent_steps_count_every_train_at_every_step(episode):
+    assert episode.agent_steps == episode.metrics["steps"] * episode.metrics["n_trains"]
+    assert episode.agent_steps >= sum(len(s.actions) for s in episode.segments)   # each decision is an agent-step
+
+
+def test_train_logs_the_budget_and_sampled_checks_differ_from_greedy(tmp_path):
+    def run(name, mode):
+        out = tmp_path / name
+        train.main(["--config", str(write_config(tmp_path, train={"eval_mode": mode})), "--seed", "0", "--out", str(out)])
+        return out
+    greedy, sampled, again = run("greedy", "greedy"), run("sampled", "sampled"), run("again", "sampled")
+    log = list(csv.DictReader((sampled / "train_log.csv").open()))
+    steps = [int(r["agent_steps"]) for r in log]
+    assert all(s >= int(r["decisions"]) for s, r in zip(steps, log))
+    assert [int(r["agent_steps_total"]) for r in log] == list(np.cumsum(steps))
+    read = lambda out: (out / "eval_log.csv").read_text()  # noqa: E731
+    assert read(sampled) == read(again)                    # sampled checks are reproducible
+    assert read(sampled) != read(greedy)                   # and really sample
+    with pytest.raises(ValueError, match="eval_mode"):
+        train.load_config(write_config(tmp_path, train={"eval_mode": "argmax"}))

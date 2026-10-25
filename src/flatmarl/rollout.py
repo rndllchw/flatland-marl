@@ -40,6 +40,7 @@ class EpisodeResult:
     metrics: dict          # episode_metrics(env).as_row(): official numbers, for logging
     unattributed: float    # |official reward| that reached no decision (should be 0)
     exempted_halts: int = 0  # chosen STOPs not charged in training (reward.exempt_chosen_stops)
+    agent_steps: int = 0     # env steps x trains in the episode (the training budget's sample count)
 
 
 def collect_episode(job) -> EpisodeResult:
@@ -59,6 +60,7 @@ def collect_episode(job) -> EpisodeResult:
     handles = env.get_agent_handles()
     rec = {h: {"obs": [], "actions": [], "logprobs": [], "values": [], "rewards": [], "steps": []} for h in handles}
     unattributed = 0.0
+    steps = 0
 
     while True:
         deciding = [h for h in handles
@@ -85,6 +87,7 @@ def collect_episode(job) -> EpisodeResult:
                 actions[h] = int(chosen[i])
 
         obs, rewards, dones, _ = env.step(actions)
+        steps += 1
         for h in handles:
             r = rec[h]
             if r["steps"]:
@@ -103,4 +106,4 @@ def collect_episode(job) -> EpisodeResult:
                         discounts=(gamma ** np.array(r["steps"], dtype=np.float64)).astype(np.float32))
                 for r in rec.values() if r["actions"]]
     return EpisodeResult(segments=segments, metrics=episode_metrics(env).as_row(), unattributed=unattributed,
-                         exempted_halts=shaper.exempted_halts)
+                         exempted_halts=shaper.exempted_halts, agent_steps=steps * len(handles))

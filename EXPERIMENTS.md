@@ -254,6 +254,7 @@ Halts per game fell from 4.6 to under 1 in every seed and stayed there.
 | Decision | What it means for every later run |
 |---|---|
 | **Warm start for both arms** | IPPO and MAPPO both start from the organisers' `checkpoint.pt`. From-scratch training (E1–E2) is not part of the comparison. |
+| **Training budget: 200 iterations × 32 games (26 Oct)** | Budget unit = training games, the same for IPPO and MAPPO (a fixed step budget would give more games to the arm whose games end sooner). 200 × 32 = 6,400 games per run because E5 was still improving at iteration 100. `train_log.csv` records `agent_steps` and `decisions` with running totals. Quick checks during training sample their actions (`train.eval_mode: sampled`). |
 | **Evaluation: sampled actions are the main number (26 Oct)** | Trained actors are scored with `actor-sampled:<path>` and `--seeds 0 1 2` (mean over the three per scenario); the top-action (greedy) result is reported as a secondary number. Same for IPPO, MAPPO and the checkpoint. Reason: "Sampled evaluation" below. |
 | **Stop rule: train without the chosen-STOP penalty, report official** | The training reward does not charge the 250 for a halt that follows the train's own STOP action; halts forced by being blocked still cost 250. Every reported number uses the official reward, with arrivals first and the score next to it. Same training reward for IPPO and MAPPO. E3 (trained on the official reward) is the comparison that shows what the rule does to learning. |
 
@@ -499,3 +500,19 @@ E3 56% (iterations 20, 10, 20).
     CIs cover scenario variation only.
 - **Decision (26 Oct):** sampled evaluation is the main number from now on; greedy stays secondary (see "Team
   decisions").
+
+## E6: E5 with the final budget, 200 iterations (planned)
+
+- **Question:** do E5's arrivals keep rising after iteration 100, and where do they level off? Candidate final
+  IPPO config; MAPPO will be the same config with `critic: central`.
+- **Config:** `configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml` = E5's config with `train.iterations: 200`
+  and `train.eval_mode: sampled` (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2.
+- **Code change behind it (26 Oct):** `train.eval_mode` (default `greedy`) and `agent_steps` / `agent_steps_total`
+  in `train_log.csv`. A small run on the old (`0ea9168`) and new code gives identical weights, `eval_log.csv` and
+  `train_log.csv` apart from the new columns. 2 tests, 4 mutants caught.
+- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0`
+  (and 1, 2); then sampled validation of all 60 snapshots (`actor-sampled:`, `--seeds 0 1 2`) and
+  `scripts/val_analysis.py` against the checkpoint, heuristic, E3 and E5.
+- **Judge by:** sampled validation arrivals by iteration (does the curve level off before 200?) and the
+  iteration-200 main number, using the same rule as E3 with the final snapshot = iteration 200.
+- **Status:** not run yet. About 1 hour per seed.

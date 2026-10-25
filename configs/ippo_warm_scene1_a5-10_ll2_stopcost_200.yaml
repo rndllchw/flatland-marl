@@ -1,0 +1,37 @@
+# Experiment 6: E5 with the final training budget (decided 26 Oct): 200 iterations x 32 games = 6,400 training
+# games per run, the same for IPPO and MAPPO. E5's sampled validation arrivals were still rising at iteration
+# 100 (52% -> 63%). Quick checks sample their actions (train.eval_mode: sampled), like the main evaluation.
+# Everything else is identical to configs/ippo_warm_scene1_a5-10_ll2_stopcost.yaml (E5).
+# Candidate final IPPO config; MAPPO = this config with critic: central.
+# Question: do arrivals keep rising after iteration 100, and where do they level off?
+name: ippo_warm_scene1_a5-10_ll2_stopcost_200
+critic: local
+env:
+  source: pool
+  pool: pools/scene1_a5-10_ll2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.0
+  exempt_chosen_stops: true
+  chosen_stop_cost: 25.0
+  waiting_cost: 0.5
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  minibatch_size: 1024
+  lr: 0.0001
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  value_norm: true
+train:
+  iterations: 200
+  episodes_per_iteration: 32
+  workers: 10
+  init_checkpoint: third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt
+  save_every: 10
+  eval_episodes: 16
+  eval_mode: sampled
