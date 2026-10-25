@@ -18,9 +18,12 @@ use sampled actions and can make a policy that never moves look half-decent; see
 Training seeds (`train.py --seed`) are separate: 0, 1, 2 for final runs. Greedy checks during training
 use game seeds 1,000,000 + i (with `source: pool` they only pick which training-pool games to replay).
 
-**Judging a run:** the greedy check (`eval_log.csv`) and `evaluate.py` play the actor's top action;
-always compare against `checkpoint` and `heuristic` on the same scenarios; report the share of trains
-that arrived next to the score.
+**Judging a run:** always compare against `checkpoint` and `heuristic` on the same scenarios; report the
+share of trains that arrived next to the score. **From 26 Oct the main number uses sampled actions**
+(`evaluate.py --policies actor-sampled:<path> --seeds 0 1 2`; see "Sampled evaluation" below): trained
+actors depart at random on purpose, and the top action (`actor:<path>`, and the greedy check in
+`eval_log.csv`) turns that into all-or-nothing departures. Greedy results stay as a secondary number.
+Analyse snapshot folders with `scripts/val_analysis.py` (the rule used since E3; reproduces E3's numbers).
 
 ## Infrastructure measurements
 
@@ -28,7 +31,7 @@ that arrived next to the score.
 |---|---|---|
 | 17 Oct | Simulator speed, 6 trains, one process (M2 Max) | ~830 steps/s (checkpoint obs), ~280 steps/s (heuristic) |
 | 18 Oct | Reset time, scene 1, 5–10 trains, `line_length=3` | `make_env` 8.25 s vs pool replay 0.36 s (23×) |
-| 18 Oct | Pool generation, 64 scenarios, `line_length=3`, 10 workers | 51 s (~8 s per scenario per worker) |
+| 18 Oct | Pool generation, 64 scenarios, `line_length=3`, 10 workers (`pools/scene1_a5-10_ll3`, gitignored; used only for this timing and the README example) | 51 s (~8 s per scenario per worker) |
 | 18 Oct | 27 example scenarios × 5 policies, 8 workers | 51 s |
 | 21 Oct | Pool generation, 2,000 scenarios, scene 1, 5–10 trains, `line_length=2`, 10 workers | 1045 s (17.4 min) |
 | 21 Oct | Pool generation, 50 scenarios, same spec, seeds from 1,000,000, 10 workers | 4 s (cause of the speed difference not investigated) |
@@ -66,7 +69,12 @@ All `make_env(scene="scene_1", n_agents=1, line_length=2)`, training seed 0, 30 
 | E2b | 19 Oct | `configs/ippo_debug_progress.yaml` | progress shaping 0.01 | never departs (100%) | score 0.58 |
 | E2c | 19 Oct | `configs/ippo_debug_progress01.yaml` | progress shaping 0.1 | departs at it 10 (12% never depart), regresses (50%, 88%); no arrivals | score 0.32 |
 
-Rerun any of them with `python scripts/train.py --config configs/<config> --seed 0`.
+Rerun any of them with `python scripts/train.py --config configs/<config> --seed 0`. Outputs are only in the
+local `runs/ippo_debug*_s0/` folders (gitignored; not copied to `results/`); the numbers above come from their
+`eval_log.csv` (E1b has no run folder left; its result is from the 18 Oct training log).
+
+**Config never run:** `configs/ippo_scene1_pool.yaml` (18 Oct) is an example of training on the
+`scene1_a5-10_ll3` pool with intermediate stops and breakdowns. No results exist for it.
 
 **Diagnosis D1 (19 Oct):** the E1 actor on 10 unseen one-train games (seeds 5000–5009):
 
@@ -104,8 +112,14 @@ Rerun any of them with `python scripts/train.py --config configs/<config> --seed
   python scripts/make_scenario_pool.py --out pools/val_scene1_a5-10_ll2 --n 50 --scene scene_1 --n-agents 5 10 --line-length 2 --seed 1000000 --workers 10
   python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2.yaml --seed 0
   python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none \
-      --policies checkpoint heuristic actor:runs/ippo_warm_scene1_a5-10_ll2_s0/actor.pt --out results/e3_val --workers 10
+      --policies forward checkpoint heuristic --out results/e3_val_baselines --workers 10
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none \
+      --policies checkpoint actor:runs/ippo_warm_scene1_a5-10_ll2_s0/actor_30.pt \
+      actor:runs/ippo_warm_scene1_a5-10_ll2_s0/actor_60.pt actor:runs/ippo_warm_scene1_a5-10_ll2_s0/actor_100.pt \
+      --out results/e3_val_ippo --workers 10
   ```
+  (Exact commands are in each folder's `run.json`. `runs/` is gitignored; the same three networks are kept as
+  `results/e3_training/seed_0/actor_{30,60,100}.pt`, weights checked identical 26 Oct.)
 - **Validation baselines** (`results/e3_val_baselines/`, 50 scenarios, no disruptions):
 
   | Policy | Score | Arrived | Halts per game |
@@ -240,6 +254,7 @@ Halts per game fell from 4.6 to under 1 in every seed and stayed there.
 | Decision | What it means for every later run |
 |---|---|
 | **Warm start for both arms** | IPPO and MAPPO both start from the organisers' `checkpoint.pt`. From-scratch training (E1–E2) is not part of the comparison. |
+| **Evaluation: sampled actions are the main number (26 Oct)** | Trained actors are scored with `actor-sampled:<path>` and `--seeds 0 1 2` (mean over the three per scenario); the top-action (greedy) result is reported as a secondary number. Same for IPPO, MAPPO and the checkpoint. Reason: "Sampled evaluation" below. |
 | **Stop rule: train without the chosen-STOP penalty, report official** | The training reward does not charge the 250 for a halt that follows the train's own STOP action; halts forced by being blocked still cost 250. Every reported number uses the official reward, with arrivals first and the score next to it. Same training reward for IPPO and MAPPO. E3 (trained on the official reward) is the comparison that shows what the rule does to learning. |
 
 Implemented 25 Oct as two config switches (both default off, so earlier configs rerun unchanged), used
@@ -388,4 +403,99 @@ final snapshots +33% [+30, +37]. (E3's best snapshots: 68%.) Chosen from 10 snap
   - The official score is lower than E3's (0.62 vs 0.78) because E3 scored by never stopping; judge by arrivals.
   - Caveats: 16-game greedy checks during training are too noisy to pick snapshots; CIs cover scenario
     variation only, not training seeds.
-- **Next:** stabilise training before MAPPO (team discussion 26 Oct).
+- **Next:** stabilise training before MAPPO (team discussion 26 Oct). **Update, same day:** the "relapses"
+  turned out to be an artefact of taking the top action; see "Sampled evaluation" below.
+
+## Sampled evaluation of E3 and E5 (26 Oct)
+
+- **Question:** E5's seed 0 fell from 64% to 12% arrived between iterations 90 and 100 on validation (71% of
+  trains never departed). Is that a training collapse, or an artefact of evaluating with the top action?
+- **Diagnosis first** (10 validation scenarios, 64 moments when a train is ready to depart; there only
+  do-nothing and FORWARD are legal):
+
+  | Network | Mean P(depart) | Top action departs | Greedy validation arrived |
+  |---|---|---|---|
+  | checkpoint | 0.92 | 100% | 45% |
+  | E5 seed 0, it 90 | 0.52 | 62% | 64% |
+  | E5 seed 0, it 100 | 0.38 | 9% | 12% |
+  | E5 seed 1, it 100 | 0.76 | 100% | 76% |
+  | E5 seed 2, it 100 | 0.49 | 36% | 40% |
+
+  Training moved P(depart) from 0.92 to about 0.5: played with sampled actions (as in training), trains
+  leave after a random step or two, which staggers them. Taking the top action turns a 0.52 into "every train
+  departs at once" and a 0.38 into "no train ever departs". Seed 0's it 90 → 100 change was small
+  (`approx_kl` ≤ 0.008) but crossed 0.5. Seed 0's training games at the end still got 59% home.
+- **New policy:** `actor-sampled:<path>` in `evaluate.py` / `flatmarl.policies`: the same network, each action
+  drawn from its masked policy, reproducible from `--seeds` (with `--disruption none`, the seeds change only the
+  draws; tested). 3 new tests plus one check in `test_errors`; 4 mutants caught.
+- **Rerun:**
+  ```bash
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:results/e5_training/seed_0/actor_10.pt ... actor-sampled:results/e5_training/seed_2/actor_100.pt \
+      --out results/e5_val_sampled --workers 10                 # and e3_training -> results/e3_val_sampled
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt --out results/val_sampled_baselines --workers 10
+  python scripts/val_analysis.py results/e5_val_sampled --write-summary \
+      --ref checkpoint=results/e3_val_baselines:checkpoint heuristic=results/e3_val_baselines:heuristic \
+            checkpoint_sampled=results/val_sampled_baselines:actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt \
+      --ref-final E3_sampled=results/e3_val_sampled              # and the same for results/e3_val_sampled
+  ```
+- **Code:** run on `1d221b1` plus the uncommitted `actor-sampled` code (each `run.json` says
+  `uncommitted_changes: true`); committed afterwards together with this entry.
+- **Outputs (committed):** `results/e5_val_sampled/`, `results/e3_val_sampled/` (each: `episodes.csv`,
+  `trains.csv`, `run.json`, `summary_by_snapshot.csv`), `results/val_sampled_baselines/` (checkpoint, sampled).
+  4,500 episodes per experiment, about 35 min each on 10 workers.
+
+**Validation arrivals by iteration, sampled** (mean of 3 sampling seeds, 50 scenarios):
+
+| After iteration | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E5 seed 0 | 51% | 57% | 56% | 54% | 57% | 64% | 61% | 64% | 60% | 61% |
+| E5 seed 1 | 53% | 51% | 51% | 51% | 56% | 57% | 59% | 55% | 64% | 65% |
+| E5 seed 2 | 52% | 57% | 55% | 59% | 55% | 56% | 64% | 61% | 59% | 62% |
+| E3 seed 0 | 51% | 54% | 47% | 46% | 45% | 45% | 41% | 37% | 45% | 42% |
+| E3 seed 1 | 54% | 47% | 38% | 35% | 38% | 40% | 39% | 48% | 49% | 44% |
+| E3 seed 2 | 51% | 61% | 46% | 49% | 41% | 38% | 43% | 42% | 39% | 41% |
+
+No E3 or E5 snapshot has a single never-departed train when sampled (greedy: up to 71%).
+
+**Main result, final snapshots (iteration 100, mean of 3 training seeds), sampled:**
+
+| Policy | Arrived | sd over training seeds | Score | Halts |
+|---|---|---|---|---|
+| heuristic | 86% | | 0.637 | 6.5 |
+| **E5** | **63%** | 2% | 0.832 | 1.6 |
+| checkpoint, sampled | 47% | | 0.527 | 4.6 |
+| checkpoint, greedy | 45% | | 0.519 | 4.5 |
+| E3 | 42% | 1% | 0.811 | 0.6 |
+
+Paired differences (95% CI over scenarios):
+
+| Comparison | Arrived | Score |
+|---|---|---|
+| **E5 vs E3** | **+21% [+18, +24]** | +0.02 [0.00, +0.04] |
+| **E5 vs checkpoint (sampled)** | **+15% [+10, +20]** | +0.31 [+0.25, +0.36] |
+| E5 vs heuristic | −23% [−29, −17] | +0.20 [+0.14, +0.25] |
+| E3 vs checkpoint (sampled) | −5% [−11, 0] | +0.28 [+0.22, +0.34] |
+| E5 sampled vs E5 greedy | +20% [+17, +23] | +0.22 [+0.19, +0.24] |
+
+Secondary (best snapshot per seed by sampled validation arrivals; optimistic): E5 64% (iterations 60, 100, 70),
+E3 56% (iterations 20, 10, 20).
+
+- **Conclusions:**
+  - **The greedy "relapses" were an evaluation artefact, not training collapse.** Sampled, no snapshot strands
+    trains at the start, and the spread across training seeds falls from 16–32% (greedy) to 1–2%.
+  - **E3's erosion is real:** sampled, E3 still falls from 51–61% early to ~42%, below the checkpoint. The
+    official reward (250 per stop) teaches "don't stop", which costs arrivals.
+  - **E5's reward works:** arrivals climb steadily (~52% → 63%), +21% over E3 and +15% over the checkpoint,
+    with the official score no lower than E3's.
+  - **The checkpoint barely changes when sampled** (47% vs 45%; it is confident), so sampled evaluation does
+    not flatter our policies relative to it.
+  - **Learned strategy:** without a way to coordinate, IPPO staggers departures at random. Whether a central
+    critic (MAPPO) learns something better is the research question. Trains still give way rarely (1.6 halts
+    vs the heuristic's 6.5) and the heuristic leads by 23 points.
+  - With seed spread ~2%, three training seeds can resolve IPPO vs MAPPO differences of a few points.
+  - Caveats: validation scenarios only (no frozen test set yet); scene 1, 5–10 trains, no stops, no breakdowns;
+    CIs cover scenario variation only.
+- **Decision (26 Oct):** sampled evaluation is the main number from now on; greedy stays secondary (see "Team
+  decisions").

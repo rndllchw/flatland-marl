@@ -145,10 +145,10 @@ python scripts/evaluate.py --scenarios eval_sets/test --disruption breakdowns --
 
 | Option | Meaning |
 |---|---|
-| `--policies` | `do_nothing`, `forward`, `random`, `heuristic`, `checkpoint`, or `actor:<path>` (any network with the starter-kit `ActorCritic` shape, saved as `{"model": state_dict}`) |
+| `--policies` | `do_nothing`, `forward`, `random`, `heuristic`, `checkpoint`, `actor:<path>` (any network with the starter-kit `ActorCritic` shape, saved as `{"model": state_dict}`; plays its top action), or `actor-sampled:<path>` (same network, each action drawn from its policy as in training; **the main number for trained actors since 26 Oct**, use with `--seeds 0 1 2`) |
 | `--scenarios` | folder of `.pkl` scenarios, or one `.pkl` |
 | `--disruption` | `file` (each scenario's own, default), `none`, `breakdowns`, `breakdowns+delays` |
-| `--seeds` | one episode per seed (breakdown pattern + random policy); omitted = the file's stored randomness |
+| `--seeds` | one episode per seed (breakdown pattern + random / `actor-sampled` draws); omitted = the file's stored randomness. With `--disruption none` they change only the draws |
 | `--workers` | episodes in parallel; results are identical to `--workers 1` |
 | `--overwrite` | needed to replace existing results in `--out` |
 
@@ -184,6 +184,10 @@ ranges disjoint:** training pools from seed 0, validation pools from 1,000,000, 
 python scripts/train.py --config configs/ippo_debug.yaml --seed 0
 python scripts/evaluate.py --policies actor:runs/ippo_debug_s0/actor.pt checkpoint --out results/ippo_debug
 ```
+
+To compare a run's snapshots on validation with the rule used since E3 (final snapshot = main number, best
+snapshot = optimistic secondary, paired bootstrap CIs over scenarios), evaluate them all and run
+`scripts/val_analysis.py <evaluate output folder> --ref ... --write-summary` (examples in `EXPERIMENTS.md`).
 
 A config sets the env (`source: make_env` or `source: pool`), `critic` (`local` = IPPO; `central` =
 MAPPO, not implemented yet), reward scale, PPO settings and the training budget; unknown keys are
@@ -313,9 +317,10 @@ src/flatmarl/envs.py           ✅ environment factory: make_env, load_scenario,
 tests/test_envs.py             ✅ 20 tests for envs.py
 src/flatmarl/metrics.py        ✅ per-episode metrics (score, arrivals, lateness, missed stops, halts while moving, fairness)
 tests/test_metrics.py          ✅ 21 tests for metrics.py
-src/flatmarl/policies.py       ✅ named baseline policies + actor:<path>
+src/flatmarl/policies.py       ✅ named baseline policies + actor:<path> + actor-sampled:<path>
 scripts/evaluate.py            ✅ run policies over saved scenarios -> episodes.csv, trains.csv, run.json
-tests/test_evaluate.py         ✅ 7 tests for evaluate.py
+tests/test_evaluate.py         ✅ 10 tests for evaluate.py (incl. actor-sampled)
+scripts/val_analysis.py        ✅ snapshot comparison on validation (E3 rule, paired bootstrap); tests/test_val_analysis.py
 results/baselines_example_curriculum/  ✅ first baseline table (5 policies x 27 scenarios)
 scripts/make_eval_sets.py      ⬜ build frozen val/test scenario sets
 src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a random pooled scenario)
@@ -328,7 +333,9 @@ results/e3_training/           ✅ E3 trained networks (every 10 iterations) and
 results/e3_val_seeds/          ✅ E3 validation of all 30 snapshots (+ summary_by_snapshot.csv)
 results/e4_training/           ✅ E4 networks and logs (failed run: free STOPs → stop and wait)
 results/e5_training/           ✅ E5 networks and logs, seeds 0–2
-results/e5_val_seeds/          ✅ E5 validation of all 30 snapshots (+ summary_by_snapshot.csv)
+results/e5_val_seeds/          ✅ E5 validation of all 30 snapshots, greedy (+ summary_by_snapshot.csv)
+results/{e3,e5}_val_sampled/   ✅ E3 and E5 validation, sampled actions x 3 seeds (+ summary_by_snapshot.csv)
+results/val_sampled_baselines/ ✅ checkpoint on validation, sampled actions x 3 seeds
 src/flatmarl/obs.py + central critic   ⬜ MAPPO (Member 3)
 ```
 
@@ -375,10 +382,16 @@ giving way means stopping, and stopping costs 250, so the official score rewards
 **Training without the 250 for a chosen STOP (E4, E5 in `EXPERIMENTS.md`):** making a chosen STOP free (E4)
 backfired: every seed learned to stop and wait (240–330 halts per training game; final arrivals 0–26%),
 because lateness and not arriving are only charged at the end. Charging a chosen STOP 25 and every step not
-yet arrived 0.5 (E5) fixed that: arrivals no longer erode (validation mean over all snapshots 57% vs E3's 48%;
-best final snapshot 76%). But training is unstable: one seed's final snapshot relapsed into trains never
-departing (12% arrived), so the unbiased final mean is 43% (+5% [+2, +7] vs E3, level with the checkpoint).
-Next: stabilise training before MAPPO. Networks and logs: `results/e5_training/`; validation: `results/e5_val_seeds/`.
+yet arrived 0.5 (E5) fixed that. Networks and logs: `results/e5_training/`.
+
+**Evaluate trained actors with sampled actions (26 Oct).** Trained actors learned to depart with about 50%
+probability per step, which staggers trains when actions are sampled. Taking the top action turns that into
+"all trains depart at once" or "none ever departs", which looked like training collapse (E5 seed 0: 12% greedy,
+61% sampled). With sampled actions (`actor-sampled:<path>`, 3 seeds) on 50 validation scenarios, final
+snapshots: **E5 63% arrived** (sd 2% over training seeds), E3 42%, checkpoint 47%, heuristic 86%; **E5 vs E3
++21% [+18, +24]**, E5 vs checkpoint +15% [+10, +20]. E3's decline with training is real; E5's reward fixes it.
+Sampled is now the main number, greedy secondary. Results: `results/{e3,e5}_val_sampled/`,
+`results/val_sampled_baselines/`. Next: fixed training budget, then MAPPO.
 
 ## Notes
 

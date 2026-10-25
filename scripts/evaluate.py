@@ -10,6 +10,10 @@ Examples (from repo root, venv active):
         --out results/baselines_example_curriculum --workers 8
     python scripts/evaluate.py --scenarios eval_sets/test --disruption breakdowns --seeds 0 1 2 \\
         --policies heuristic actor:runs/ippo_s0/actor.pt --out results/test_breakdowns
+    python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+        --policies actor-sampled:runs/ippo_s0/actor.pt --out results/val_sampled
+        (actor-sampled draws each action from the policy; --seeds then sets the draws, and with
+        --disruption none nothing else)
 """
 import argparse
 import csv
@@ -106,11 +110,13 @@ def main(argv=None):
     parser.add_argument("--scenarios", type=Path, default=EXAMPLE_CURRICULUM,
                         help="folder of .pkl scenarios, or one .pkl (default: starter kit's 27 examples)")
     parser.add_argument("--policies", nargs="+", required=True,
-                        help="do_nothing forward random heuristic checkpoint, or actor:<path>")
+                        help="do_nothing forward random heuristic checkpoint, actor:<path> (top action), "
+                             "or actor-sampled:<path> (actions drawn from the policy; seeded by --seeds)")
     parser.add_argument("--disruption", choices=DISRUPTION_CHOICES, default="file",
                         help="'file' = each scenario's own disruptions (default)")
     parser.add_argument("--seeds", nargs="+", type=int, default=None,
-                        help="breakdown patterns, one episode per seed (default: the file's stored randomness)")
+                        help="one episode per seed: sets breakdown patterns and the random / actor-sampled "
+                             "policies' draws (default: the file's stored randomness, policy seed 0)")
     parser.add_argument("--workers", type=int, default=1, help="scenarios run in parallel")
     parser.add_argument("--out", type=Path, required=True, help="output folder")
     parser.add_argument("--overwrite", action="store_true", help="replace results already in --out")

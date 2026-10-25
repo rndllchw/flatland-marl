@@ -7,11 +7,14 @@ import csv
 import json
 import sys
 
+import numpy as np
 import pytest
+import torch
 
 from flatmarl import EXAMPLE_CURRICULUM, ROOT, STARTER_KIT
 from flatmarl.envs import load_scenario
 from flatmarl.metrics import episode_metrics
+from flatmarl.models import OBS_SIZE, make_actor, masked_policy, save_actor
 from flatmarl.policies import STARTER_KIT_CHECKPOINT, make_policy
 
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -115,9 +118,63 @@ def test_errors(small_set, tmp_path):
         run(tmp_path / "a", "--scenarios", small_set, "--policies", "chekpoint")
     with pytest.raises(FileNotFoundError):
         run(tmp_path / "b", "--scenarios", small_set, "--policies", "actor:no/such/file.pt")
+    with pytest.raises(FileNotFoundError):
+        run(tmp_path / "b2", "--scenarios", small_set, "--policies", "actor-sampled:no/such/file.pt")
     (tmp_path / "empty").mkdir()
     with pytest.raises(SystemExit, match="no .pkl"):
         run(tmp_path / "c", "--scenarios", tmp_path / "empty", "--policies", "forward")
     run(tmp_path / "d", "--scenarios", small_set, "--policies", "do_nothing")
     with pytest.raises(SystemExit, match="overwrite"):                 # never silently replace results
         run(tmp_path / "d", "--scenarios", small_set, "--policies", "do_nothing")
+
+
+# actor-sampled:<path> (26 Oct)
+
+@pytest.fixture(scope="module")
+def untrained_actor(tmp_path_factory):
+    """A freshly initialised actor: its policy spreads probability over the legal actions."""
+    torch.manual_seed(0)
+    path = tmp_path_factory.mktemp("actor") / "actor.pt"
+    save_actor(make_actor(), path)
+    return path
+
+
+def test_sampled_actor_draws_actions_with_the_policys_probabilities(untrained_actor):
+    env = load_scenario(SAMPLE, obs_builder=make_policy("checkpoint")[1])
+    obs, _ = env.reset()
+    for _ in range(5):                                       # until some train has a real choice
+        on_map = [o for o in obs.values() if o[OBS_SIZE:].sum() > 1.5]
+        if on_map:
+            break
+        obs, _, _, _ = env.step({h: 2 for h in env.get_agent_handles()})
+    x = torch.from_numpy(on_map[0])
+    with torch.no_grad():
+        probs = masked_policy(make_actor(untrained_actor)(x[:OBS_SIZE])[0], x[OBS_SIZE:]).probs.numpy()
+    policy, _ = make_policy(f"actor-sampled:{untrained_actor}", seed=0)
+    draws = np.array([policy.act(on_map[0]) for _ in range(4000)])
+    freq = np.bincount(draws, minlength=5) / len(draws)
+    assert (freq[on_map[0][OBS_SIZE:] < 0.5] == 0).all()     # never an illegal action
+    assert freq == pytest.approx(probs, abs=0.03)
+    again, _ = make_policy(f"actor-sampled:{untrained_actor}", seed=0)
+    other, _ = make_policy(f"actor-sampled:{untrained_actor}", seed=1)
+    first = draws[:50].tolist()
+    assert [again.act(on_map[0]) for _ in range(50)] == first          # same seed, same draws
+    assert [other.act(on_map[0]) for _ in range(50)] != first          # different seed, different draws
+
+
+def test_sampled_evaluation_is_reproducible_and_seeded(small_set, untrained_actor, tmp_path):
+    args = ("--scenarios", small_set, "--policies", f"actor-sampled:{untrained_actor}", "--seeds", "0", "1",
+            "--disruption", "none")
+    first, first_trains, _ = run(tmp_path / "a", *args)
+    parallel, parallel_trains, _ = run(tmp_path / "b", *args, "--workers", "2")
+    assert without_runtime(first) == without_runtime(parallel) and first_trains == parallel_trains
+    penalties = lambda e: tuple(v for k, v in e.items() if k.startswith("penalty_"))  # noqa: E731
+    assert [penalties(e) for e in first if e["seed"] == "0"] != [penalties(e) for e in first if e["seed"] == "1"]
+
+
+def test_seeds_without_disruptions_change_nothing_for_a_top_action_policy(small_set, tmp_path):
+    # So in sampled evaluation with --disruption none, --seeds varies only the action draws.
+    rows, _, _ = run(tmp_path, "--scenarios", small_set, "--policies", "checkpoint", "--seeds", "0", "1",
+                     "--disruption", "none")
+    strip = lambda e: {k: v for k, v in e.items() if k not in ("seed", "runtime_s")}  # noqa: E731
+    assert [strip(e) for e in rows if e["seed"] == "0"] == [strip(e) for e in rows if e["seed"] == "1"]
