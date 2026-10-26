@@ -1,0 +1,13 @@
+{
+  "command": "python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 2",
+  "seed": 2,
+  "git": {
+    "commit": "7944171e7c30638c060c8d61beb456ea66996453",
+    "uncommitted_changes": false
+  },
+  "versions": {
+    "flatland-rl": "4.2.6",
+    "torch": "2.9.1"
+  },
+  "date_utc": "2026-10-25T23:03:12+00:00"
+}

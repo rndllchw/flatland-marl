@@ -37,3 +37,9 @@ def test_evaluation_seeds_are_averaged_before_pairing():
     reference = pd.DataFrame({c: [0.3, 0.5] for c in val_analysis.COLUMNS}, index=["a", "b"])
     mean, lo, hi = val_analysis.paired_ci(m, reference, "completion_rate")
     assert mean == pytest.approx(0.25) and lo <= mean <= hi             # differences 0.0 and 0.5
+
+
+def test_final_snapshot_is_each_seeds_last_iteration():
+    e = pd.DataFrame({"seed": [0, 0, 1, 1, 1], "iteration": [10, 200, 10, 100, 200]})
+    assert val_analysis.final_picks(e) == {0: 200, 1: 200}
+    assert val_analysis.final_picks(val_analysis.load_snapshots(E3_VAL)) == {0: 100, 1: 100, 2: 100}

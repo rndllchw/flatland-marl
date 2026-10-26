@@ -190,7 +190,7 @@ snapshot = optimistic secondary, paired bootstrap CIs over scenarios), evaluate 
 `scripts/val_analysis.py <evaluate output folder> --ref ... --write-summary` (examples in `EXPERIMENTS.md`).
 
 A config sets the env (`source: make_env` or `source: pool`), `critic` (`local` = IPPO; `central` =
-MAPPO, not implemented yet), reward scale, PPO settings and the training budget; unknown keys are
+MAPPO, see below), reward scale, PPO settings and the training budget; unknown keys are
 rejected. Each run writes `runs/<name>_s<seed>/`: `actor.pt` (plus snapshots), `train_log.csv` (one row
 per iteration: official score, arrivals, stops served, halts, PPO stats), `eval_log.csv`, `config.yaml`,
 `run.json`. Same config + seed gives identical weights, whatever the number of workers.
@@ -208,9 +208,10 @@ same for IPPO and MAPPO; final runs use 200 × 32. `train_log.csv` records `deci
 
 | File | Role | Extension point |
 |---|---|---|
-| `src/flatmarl/models.py` | actor (the starter kit's `ActorCritic`), masked action sampling | `check_critic`: central critic (Member 3) |
+| `src/flatmarl/models.py` | actor (the starter kit's `ActorCritic`), masked action sampling; `CentralCritic` + `policy_and_values` for MAPPO | — |
+| `src/flatmarl/obs.py` | `global_state`: the 40-number summary of all trains the central critic sees (training only) | — |
 | `src/flatmarl/rollout.py` | play one episode; records only real decisions; credits every reward to the train's latest decision | — |
-| `src/flatmarl/ppo.py` | GAE advantages, clipped PPO update; optional value-target normalisation (`ppo.value_norm`, running mean/std of returns) | central-critic values (Member 3) |
+| `src/flatmarl/ppo.py` | GAE advantages, clipped PPO update (actor + central critic for MAPPO); optional value-target normalisation (`ppo.value_norm`, running mean/std of returns) | — |
 | `src/flatmarl/reward.py` | official reward × scale; optional `progress` shaping (potential-based, towards the destination); optional `exempt_chosen_stops`, `chosen_stop_cost`, `waiting_cost` | more shaping terms (Member 4) |
 | `scripts/train.py`, `configs/` | config + seed → run folder | curriculum schedule (Member 4) |
 
@@ -288,8 +289,8 @@ episode_metrics(env) ──► logging during training (score, arrivals, stops s
 
 1. **The actor is the starter kit's `ActorCritic`, saved as `{"model": state_dict}`.** Loading requires
    every layer name to match, so train that class rather than a lookalike. IPPO: its built-in value head
-   is the local critic. MAPPO: add a *separate* central critic and leave the actor's value head in place
-   (a file without it is rejected). Always pass `checkpoint_path` explicitly: with no argument,
+   is the local critic. MAPPO: the actor's value head stays in place (a file without it is rejected) and
+   the central critic is a separate module saved as `critic_<i>.pt`, never inside `actor.pt`. Always pass `checkpoint_path` explicitly: with no argument,
    `ActorCritic()` looks for `./submission/checkpoint.pt` relative to wherever you run it, and silently
    starts from random weights, or from the organisers' weights if run inside the starter kit.
 
@@ -325,7 +326,7 @@ src/flatmarl/metrics.py        ✅ per-episode metrics (score, arrivals, latenes
 tests/test_metrics.py          ✅ 21 tests for metrics.py
 src/flatmarl/policies.py       ✅ named baseline policies + actor:<path> + actor-sampled:<path>
 scripts/evaluate.py            ✅ run policies over saved scenarios -> episodes.csv, trains.csv, run.json
-tests/test_evaluate.py         ✅ 10 tests for evaluate.py (incl. actor-sampled)
+tests/test_evaluate.py         ✅ 11 tests for evaluate.py (incl. actor-sampled, memory)
 scripts/val_analysis.py        ✅ snapshot comparison on validation (E3 rule, paired bootstrap); tests/test_val_analysis.py
 results/baselines_example_curriculum/  ✅ first baseline table (5 policies x 27 scenarios)
 scripts/make_eval_sets.py      ⬜ build frozen val/test scenario sets
@@ -333,7 +334,7 @@ src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a r
 scripts/make_scenario_pool.py  ✅ pre-generate scenario pools (parallel, resumable)
 tests/test_pool.py             ✅ 7 tests for pools
 src/flatmarl/{models,rollout,ppo,reward}.py, scripts/train.py, configs/   ✅ IPPO framework (learning: see Training)
-tests/test_training.py         ✅ 20 tests for the training framework
+tests/test_training.py         ✅ 26 tests for the training framework
 EXPERIMENTS.md                 ✅ experiment log: every run, how to rerun it, results, conclusions
 results/e3_training/           ✅ E3 trained networks (every 10 iterations) and logs, seeds 0–2
 results/e3_val_seeds/          ✅ E3 validation of all 30 snapshots (+ summary_by_snapshot.csv)
@@ -342,7 +343,9 @@ results/e5_training/           ✅ E5 networks and logs, seeds 0–2
 results/e5_val_seeds/          ✅ E5 validation of all 30 snapshots, greedy (+ summary_by_snapshot.csv)
 results/{e3,e5}_val_sampled/   ✅ E3 and E5 validation, sampled actions x 3 seeds (+ summary_by_snapshot.csv)
 results/val_sampled_baselines/ ✅ checkpoint on validation, sampled actions x 3 seeds
-src/flatmarl/obs.py + central critic   ⬜ MAPPO (Member 3)
+results/e6_training/           ✅ E6 (IPPO arm) networks every 10 iterations to 200, logs, seeds 0–2
+results/e6_val_sampled/        ✅ E6 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
+src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
 ## What we know so far
@@ -397,9 +400,25 @@ probability per step, which staggers trains when actions are sampled. Taking the
 snapshots: **E5 63% arrived** (sd 2% over training seeds), E3 42%, checkpoint 47%, heuristic 86%; **E5 vs E3
 +21% [+18, +24]**, E5 vs checkpoint +15% [+10, +20]. E3's decline with training is real; E5's reward fixes it.
 Sampled is now the main number, greedy secondary. Results: `results/{e3,e5}_val_sampled/`,
-`results/val_sampled_baselines/`. Next: fixed training budget, then MAPPO.
+`results/val_sampled_baselines/`.
+
+**MAPPO (26 Oct, option A).** `critic: central` adds a branch to the critic: it sees the actor's trunk
+features plus `obs.global_state` (mean of the 36 observation features over active trains + shares of trains
+arrived / on the map / broken down + elapsed time), and its output is added to the actor's value head. Its
+last layer starts at zero, so MAPPO's critic starts exactly equal to IPPO's; the only difference between the
+arms is what the critic can see. The actor, warm start, reward, budget and evaluation are identical, and the
+saved `actor.pt` never contains the critic (decentralised execution). `critic: local` is unchanged
+(checked bit-identical against the previous commit). IPPO = E6, MAPPO = E7 (`EXPERIMENTS.md`).
+
+**IPPO arm settled (E6, 26 Oct).** E5's setup trained for 200 iterations: arrivals level off at about 64–66% from
+iteration ~120. Final snapshots, sampled validation: **64% arrived** (sd 2% over seeds), +16% [+11, +21] vs the
+checkpoint, +22% [+19, +24] vs E3, −22% vs the heuristic; +1% over E5's iteration 100, so 200 iterations is
+enough. Its first 100 iterations reproduce E5 bit for bit. Results: `results/e6_training/`, `results/e6_val_sampled/`.
 
 ## Notes
 
 - `flatland-rl` must stay at **4.2.6** (competition requirement). Don't upgrade it to 4.3.x.
 - `third_party/`, `.venv/` and `runs/` are gitignored. Never commit course PDFs.
+- **Flatland leaks memory across episodes** (its `lru_cache`s keep every env alive, ~45 MB each). Any long-lived
+  process that plays many episodes must call `flatmarl.envs.clear_flatland_caches()` after each one, as
+  `evaluate.py` and `rollout.py` do; their worker processes are also replaced every 50 episodes.

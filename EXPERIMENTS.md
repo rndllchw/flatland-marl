@@ -35,6 +35,7 @@ Analyse snapshot folders with `scripts/val_analysis.py` (the rule used since E3;
 | 18 Oct | 27 example scenarios × 5 policies, 8 workers | 51 s |
 | 21 Oct | Pool generation, 2,000 scenarios, scene 1, 5–10 trains, `line_length=2`, 10 workers | 1045 s (17.4 min) |
 | 21 Oct | Pool generation, 50 scenarios, same spec, seeds from 1,000,000, 10 workers | 4 s (cause of the speed difference not investigated) |
+| 26 Oct | **Memory leak in flatland** (found when E6's first sampled validation slowed to a crawl: each worker at ~7 GB after ~900 episodes, the Mac swapping; run stopped after 3 h with no output) | ~45 MB per episode never freed: flatland's `functools.lru_cache` on env methods (`AbstractRailEnv._is_speed_zero`, `_fast_state_position_sync_check`, keyed on the env) keeps every env alive. Fix: `envs.clear_flatland_caches()` after every episode in `evaluate.py` and `rollout.py` (memory flat at ~330 MB over 40 episodes), plus worker processes replaced every 50 episodes. Results unchanged: 12/12 re-run E5 episodes identical to the stored pre-fix results. Earlier runs (E3–E6 training, E3/E5 validations) were only slowed, not affected |
 
 ## E0: baselines on the 27 example scenarios (18 Oct)
 
@@ -254,6 +255,7 @@ Halts per game fell from 4.6 to under 1 in every seed and stayed there.
 | Decision | What it means for every later run |
 |---|---|
 | **Warm start for both arms** | IPPO and MAPPO both start from the organisers' `checkpoint.pt`. From-scratch training (E1–E2) is not part of the comparison. |
+| **MAPPO = option A (26 Oct)** | The central critic is a branch added to the actor's value head (shared trunk, as in IPPO), seeing the trunk features plus `obs.global_state`; zero-initialised last layer, so it starts equal to IPPO's critic. The only difference between the arms is the critic's input. Chosen over a separate critic for both arms (textbook MAPPO), which would have changed the IPPO arm and its warm start. E6 is the IPPO arm. |
 | **Training budget: 200 iterations × 32 games (26 Oct)** | Budget unit = training games, the same for IPPO and MAPPO (a fixed step budget would give more games to the arm whose games end sooner). 200 × 32 = 6,400 games per run because E5 was still improving at iteration 100. `train_log.csv` records `agent_steps` and `decisions` with running totals. Quick checks during training sample their actions (`train.eval_mode: sampled`). |
 | **Evaluation: sampled actions are the main number (26 Oct)** | Trained actors are scored with `actor-sampled:<path>` and `--seeds 0 1 2` (mean over the three per scenario); the top-action (greedy) result is reported as a secondary number. Same for IPPO, MAPPO and the checkpoint. Reason: "Sampled evaluation" below. |
 | **Stop rule: train without the chosen-STOP penalty, report official** | The training reward does not charge the 250 for a halt that follows the train's own STOP action; halts forced by being blocked still cost 250. Every reported number uses the official reward, with arrivals first and the score next to it. Same training reward for IPPO and MAPPO. E3 (trained on the official reward) is the comparison that shows what the rule does to learning. |
@@ -458,7 +460,7 @@ final snapshots +33% [+30, +37]. (E3's best snapshots: 68%.) Chosen from 10 snap
 | E3 seed 1 | 54% | 47% | 38% | 35% | 38% | 40% | 39% | 48% | 49% | 44% |
 | E3 seed 2 | 51% | 61% | 46% | 49% | 41% | 38% | 43% | 42% | 39% | 41% |
 
-No E3 or E5 snapshot has a single never-departed train when sampled (greedy: up to 71%).
+Sampled, never-departed trains all but vanish: none in E3, 1 train in 34,650 in E5 (greedy: up to 71% of a snapshot's trains).
 
 **Main result, final snapshots (iteration 100, mean of 3 training seeds), sampled:**
 
@@ -484,8 +486,9 @@ Secondary (best snapshot per seed by sampled validation arrivals; optimistic): E
 E3 56% (iterations 20, 10, 20).
 
 - **Conclusions:**
-  - **The greedy "relapses" were an evaluation artefact, not training collapse.** Sampled, no snapshot strands
-    trains at the start, and the spread across training seeds falls from 16–32% (greedy) to 1–2%.
+  - **The greedy "relapses" were an evaluation artefact, not training collapse.** Sampled, trains are practically
+    never stranded at the start (1 train in 34,650 for E5, none for E3), and the spread across training seeds falls
+    from 16–32% (greedy) to 1–2%.
   - **E3's erosion is real:** sampled, E3 still falls from 51–61% early to ~42%, below the checkpoint. The
     official reward (250 per stop) teaches "don't stop", which costs arrivals.
   - **E5's reward works:** arrivals climb steadily (~52% → 63%), +21% over E3 and +15% over the checkpoint,
@@ -501,18 +504,97 @@ E3 56% (iterations 20, 10, 20).
 - **Decision (26 Oct):** sampled evaluation is the main number from now on; greedy stays secondary (see "Team
   decisions").
 
-## E6: E5 with the final budget, 200 iterations (planned)
+## E6: E5 with the final budget, 200 iterations (26 Oct): the IPPO arm
 
 - **Question:** do E5's arrivals keep rising after iteration 100, and where do they level off? Candidate final
-  IPPO config; MAPPO will be the same config with `critic: central`.
+  IPPO config; MAPPO (E7) is the same config with `critic: central`.
 - **Config:** `configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml` = E5's config with `train.iterations: 200`
-  and `train.eval_mode: sampled` (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2.
+  and `train.eval_mode: sampled` (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2 on
+  `7944171` (no uncommitted changes).
 - **Code change behind it (26 Oct):** `train.eval_mode` (default `greedy`) and `agent_steps` / `agent_steps_total`
   in `train_log.csv`. A small run on the old (`0ea9168`) and new code gives identical weights, `eval_log.csv` and
   `train_log.csv` apart from the new columns. 2 tests, 4 mutants caught.
-- **Rerun:** `python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0`
-  (and 1, 2); then sampled validation of all 60 snapshots (`actor-sampled:`, `--seeds 0 1 2`) and
-  `scripts/val_analysis.py` against the checkpoint, heuristic, E3 and E5.
-- **Judge by:** sampled validation arrivals by iteration (does the curve level off before 200?) and the
-  iteration-200 main number, using the same rule as E3 with the final snapshot = iteration 200.
-- **Status:** not run yet. About 1 hour per seed.
+- **Rerun:**
+  ```bash
+  python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0   # and 1, 2
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:results/e6_training/seed_0/actor_10.pt ... actor-sampled:results/e6_training/seed_2/actor_200.pt \
+      --out results/e6_val_sampled --workers 10                 # all 60 snapshots; full list in run.json
+  python scripts/val_analysis.py results/e6_val_sampled --write-summary \
+      --ref checkpoint=results/e3_val_baselines:checkpoint heuristic=results/e3_val_baselines:heuristic \
+            checkpoint_sampled=results/val_sampled_baselines:actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt \
+      --ref-final E5_sampled=results/e5_val_sampled E3_sampled=results/e3_val_sampled
+  ```
+- **Outputs (committed):** `results/e6_training/` (20 snapshots per seed + logs; `sampled_checks_all_seeds.csv`
+  = the three `eval_log.csv` files) and `results/e6_val_sampled/` (`episodes.csv`, `trains.csv`, `run.json`,
+  `summary_by_snapshot.csv`). The validation ran on `7944171` plus the uncommitted MAPPO and memory-leak code
+  (`run.json` says `uncommitted_changes: true`); neither changes evaluation results (memory fix: 12/12 episodes
+  identical to stored results; MAPPO touches training only). It took 17 min after the leak fix; a first attempt
+  before it was stopped after 3 h (Infrastructure table).
+
+**Run health:** clean.
+
+| Seed | Iterations | Errors | Unattributed penalty | Entropy (min–max) | Largest `approx_kl` | Agent-steps / decisions | Time (wall) |
+|---|---|---|---|---|---|---|---|
+| 0 | 200 | none | 0 | 0.57–0.67 | 0.008 | 25.4M / 14.9M | 86 min |
+| 1 | 200 | none | 0 | 0.56–0.68 | 0.008 | 25.5M / 15.0M | 80 min |
+| 2 | 200 | none | 0 | 0.54–0.68 | 0.009 | 25.4M / 14.8M | 81 min |
+
+**Reproducibility:** E6's first 100 iterations are E5 replayed (same seeds, same games; `eval_mode` changes only the
+quick checks): each seed's `actor_100.pt` is **bit-identical** to E5's, a day later and across the budget-logging
+commit and the memory fix. The validation numbers for iterations 10–100 are therefore E5's.
+
+**Validation arrivals by iteration, sampled** (mean of 3 training seeds, each the mean of 3 sampling seeds, 50
+scenarios; per seed in `summary_by_snapshot.csv`):
+
+| After iteration | 20 | 40 | 60 | 80 | 100 | 120 | 140 | 160 | 180 | 200 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E6 | 55% | 55% | 59% | 60% | 63% | 64% | 65% | 64% | 66% | 64% |
+
+Never-departed trains: 1 in 69,300 (one game, one snapshot; the same one as in E5, which E6 replays). Halts per
+game (mean of seeds): 4.0 at iteration 10 (close to the checkpoint's 4.6), 2.2 at 20, then 1.1–1.6.
+
+**Main result, final snapshots (iteration 200, mean of seeds), sampled:**
+
+| | Arrived | sd over seeds | Score | Halts |
+|---|---|---|---|---|
+| Seed 0 | 64% | | 0.836 | 1.4 |
+| Seed 1 | 62% | | 0.840 | 1.3 |
+| Seed 2 | 65% | | 0.856 | 1.2 |
+| **E6, mean of seeds** | **64%** | 2% | 0.844 | 1.3 |
+
+| Comparison (paired, 95% CI over scenarios) | Arrived | Score |
+|---|---|---|
+| **E6 vs checkpoint (sampled)** | **+16% [+11, +21]** | +0.32 [+0.26, +0.37] |
+| **E6 vs E3** | **+22% [+19, +24]** | +0.03 [+0.01, +0.05] |
+| E6 vs E5 (iteration 100) | +1% [0, +2] | +0.01 [0, +0.02] |
+| E6 vs heuristic | −22% [−28, −16] | +0.21 [+0.15, +0.26] |
+
+Secondary (best snapshot per seed by validation arrivals; optimistic): iterations 160, 180, 150, mean 68% (sd 2%).
+
+- **Conclusions:**
+  - **IPPO levels off at ~64–66% from about iteration 120.** Doubling the budget adds +1% at the final snapshot,
+    so 200 iterations is enough for the comparison; MAPPO gets the same budget.
+  - **Stable and reproducible:** practically no stranded trains (1 in 69,300), 2% spread over seeds, and the first
+    100 iterations reproduce E5 bit for bit.
+  - **The IPPO arm is E6: 64% arrived**, +16% over the organisers' checkpoint, 22 points below the heuristic.
+  - IPPO still gives way rarely (1.3 halts per game vs the heuristic's 6.5): the gap MAPPO is meant to test.
+  - Caveats: validation scenarios only (frozen test set still to build); scene 1, 5–10 trains, no intermediate
+    stops, no breakdowns; CIs cover scenario variation only.
+
+## E7: MAPPO, E6 with a central critic (planned)
+
+- **Question (the research question):** with everything else identical to E6, does a critic that also sees all
+  trains get more trains home than IPPO?
+- **Config:** `configs/mappo_warm_scene1_a5-10_ll2_stopcost_200.yaml` = E6's config with `critic: central`
+  (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2.
+- **Code (26 Oct):** `src/flatmarl/obs.py` (`global_state`: mean of the 36 features over active trains + share
+  arrived, on the map, broken down + elapsed time), `models.CentralCritic` (trunk features + global state
+  → 128 Tanh → 1, last layer zero-initialised, added to the value head), `policy_and_values` used by the rollout
+  and the PPO update; the critic is saved as `critic_<i>.pt`, never in `actor.pt`. 5 new tests (and the config test updated), 7 mutants caught.
+  `critic: local` checked bit-identical to `7944171` on a small run (weights, `eval_log.csv`, `train_log.csv`).
+- **Rerun:** `python scripts/train.py --config configs/mappo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0`
+  (and 1, 2); then sampled validation of all 60 snapshots, and `scripts/val_analysis.py` with E6 as `--ref-final`.
+- **Judge by:** paired sampled validation arrivals, E7 vs E6 (final snapshots, mean of seeds), then the frozen
+  test set.
+- **Status:** not run yet. About 80 minutes per seed.

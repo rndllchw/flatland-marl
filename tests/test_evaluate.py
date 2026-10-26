@@ -178,3 +178,18 @@ def test_seeds_without_disruptions_change_nothing_for_a_top_action_policy(small_
                      "--disruption", "none")
     strip = lambda e: {k: v for k, v in e.items() if k not in ("seed", "runtime_s")}  # noqa: E731
     assert [strip(e) for e in rows if e["seed"] == "0"] == [strip(e) for e in rows if e["seed"] == "1"]
+
+
+def _rail_envs_alive():
+    import gc
+    from flatland.envs.rail_env import RailEnv
+    gc.collect()
+    return sum(isinstance(o, RailEnv) for o in gc.get_objects())
+
+
+def test_an_episode_leaves_no_env_behind(small_set):
+    # Flatland's lru_caches keep every env alive (~45 MB each) unless cleared (envs.clear_flatland_caches).
+    before = _rail_envs_alive()
+    for seed in (0, 1):
+        evaluate.run_episode((str(small_set / f"{SMALL[1]}.pkl"), "checkpoint", "none", seed))
+    assert _rail_envs_alive() == before

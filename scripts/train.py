@@ -1,7 +1,7 @@
 """Train a shared policy for all trains with PPO.
 
 critic: local  = IPPO (each train's critic sees only its own observation). Implemented.
-critic: central = MAPPO (critic sees a summary of all trains). Member 3; see flatmarl.models.check_critic.
+critic: central = MAPPO (critic also sees a summary of all trains; flatmarl.models.CentralCritic). Implemented.
 
     python scripts/train.py --config configs/ippo_debug.yaml --seed 0
 
@@ -14,6 +14,8 @@ Writes runs/<name>_s<seed>/:
                     at every save: train.eval_mode greedy (top action, the default) or sampled (actions
                     drawn from the policy, as evaluate.py actor-sampled:; the main evaluation since 26 Oct)
     actor.pt        latest actor, as {"model": state_dict}; also actor_<iteration>.pt snapshots
+    critic_<i>.pt   MAPPO only: the CentralCritic's weights at each save (training only; never needed to
+                    evaluate, so execution stays decentralised)
 Evaluate a run:  python scripts/evaluate.py --policies actor:runs/<name>_s<seed>/actor.pt --out ...
 
 Same config + seed gives identical results, whatever --workers is set to in the config.
@@ -42,7 +44,7 @@ import yaml
 
 from flatmarl import ROOT
 from flatmarl.envs import make_env, make_pool_env
-from flatmarl.models import check_critic, make_actor, save_actor
+from flatmarl.models import check_critic, make_actor, make_critic, save_actor
 from flatmarl.ppo import ValueNormalizer, make_batch, ppo_update
 from flatmarl.reward import RewardShaper
 from flatmarl.rollout import collect_episode
@@ -147,12 +149,16 @@ def main(argv=None):
     generator = torch.Generator().manual_seed(args.seed)
     init = cfg["train"]["init_checkpoint"]  # like env.pool, a relative path is relative to the repo root
     actor = make_actor(None if init is None else (Path(init) if Path(init).is_absolute() else ROOT / init))
-    optimizer = torch.optim.Adam(actor.parameters(), lr=cfg["ppo"]["lr"])
+    critic = make_critic(cfg["critic"])  # None for IPPO
+    params = list(actor.parameters()) + (list(critic.parameters()) if critic is not None else [])
+    optimizer = torch.optim.Adam(params, lr=cfg["ppo"]["lr"])
     recipe = env_recipe(cfg["env"])
     train, ppo = cfg["train"], cfg["ppo"]
     normalizer = ValueNormalizer() if ppo["value_norm"] else None
 
-    workers = multiprocessing.get_context("spawn").Pool(train["workers"]) if train["workers"] > 1 else None
+    # maxtasksperchild: fresh worker processes every 50 episodes, a safeguard against memory growth
+    workers = (multiprocessing.get_context("spawn").Pool(train["workers"], maxtasksperchild=50)
+               if train["workers"] > 1 else None)
     log_path, decisions_total, agent_steps_total = run_dir / "train_log.csv", 0, 0
     greedy_eval = train["eval_mode"] == "greedy"
 
@@ -184,11 +190,12 @@ def main(argv=None):
             start = time.time()
             seeds = np.random.SeedSequence([args.seed, iteration]).generate_state(train["episodes_per_iteration"])
             state = {k: v.detach().clone() for k, v in actor.state_dict().items()}
-            jobs = [(recipe, state, int(s), cfg["reward"], ppo["gamma"]) for s in seeds]
+            critic_state = {k: v.detach().clone() for k, v in critic.state_dict().items()} if critic else None
+            jobs = [(recipe, state, int(s), cfg["reward"], ppo["gamma"], False, critic_state) for s in seeds]
             results = run_jobs(jobs)
 
             batch = make_batch(results, ppo["gae_lambda"], normalizer)
-            stats = ppo_update(actor, optimizer, batch, ppo, generator)
+            stats = ppo_update(actor, optimizer, batch, ppo, generator, critic)
             decisions_total += len(batch.actions)
             agent_steps = sum(r.agent_steps for r in results)
             agent_steps_total += agent_steps
@@ -218,6 +225,8 @@ def main(argv=None):
             if iteration % train["save_every"] == 0 or iteration == train["iterations"]:
                 save_actor(actor, run_dir / f"actor_{iteration}.pt")
                 save_actor(actor, run_dir / "actor.pt")
+                if critic is not None:
+                    torch.save({"critic": critic.state_dict()}, run_dir / f"critic_{iteration}.pt")
                 quick_check(iteration)
     finally:
         if workers:

@@ -1,0 +1,36 @@
+# Experiment 7: MAPPO. Identical to E6 (configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml) except
+# critic: central: the critic's value head gets an extra branch that also sees a summary of all trains
+# (flatmarl.obs.global_state); it starts at zero, so iteration 0 is exactly E6's. The actor, warm start,
+# reward, budget (200 x 32 games) and evaluation are the same; the saved actor runs decentralised.
+# Question (the project's research question): does the central critic get more trains home than IPPO (E6)?
+name: mappo_warm_scene1_a5-10_ll2_stopcost_200
+critic: central
+env:
+  source: pool
+  pool: pools/scene1_a5-10_ll2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.0
+  exempt_chosen_stops: true
+  chosen_stop_cost: 25.0
+  waiting_cost: 0.5
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  minibatch_size: 1024
+  lr: 0.0001
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  value_norm: true
+train:
+  iterations: 200
+  episodes_per_iteration: 32
+  workers: 10
+  init_checkpoint: third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt
+  save_every: 10
+  eval_episodes: 16
+  eval_mode: sampled

@@ -12,6 +12,7 @@ Invariants:
   own disruption settings and silently overrides anything passed to RailEnvPersister.load_new.
 - Every reset gets a fresh rewards object, so penalties never depend on earlier episodes.
 """
+import sys
 import warnings
 from dataclasses import dataclass
 from numbers import Integral
@@ -225,3 +226,25 @@ def make_pool_env(pool: str | Path, disruption: str | Disruption | None = "none"
                   obs_builder_factory=None) -> ScenarioPoolEnv:
     """Same call shape as make_env (a recipe: functools.partial(make_pool_env, pool=..., seed=...))."""
     return ScenarioPoolEnv(pool, disruption=disruption, seed=seed, obs_builder_factory=obs_builder_factory)
+
+
+def clear_flatland_caches() -> int:
+    """Empty every functools cache in flatland's modules; returns how many were cleared.
+
+    Flatland memoises methods with lru_cache (e.g. AbstractRailEnv._is_speed_zero, keyed on the env
+    itself; transition-map lookups with up to 4 million entries). The caches keep every env ever built
+    alive: about 45 MB per episode (found 26 Oct, when an evaluation worker reached 7 GB after ~900
+    episodes). Call after each episode in long-lived processes. The caches only memoise results, so
+    clearing them never changes behaviour, only speed.
+    """
+    cleared = 0
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("flatland") or module is None:
+            continue
+        for obj in list(vars(module).values()):
+            for candidate in [obj, *(vars(obj).values() if isinstance(obj, type) else ())]:
+                target = getattr(candidate, "__func__", candidate)  # staticmethod / classmethod
+                if callable(getattr(target, "cache_clear", None)):
+                    target.cache_clear()
+                    cleared += 1
+    return cleared

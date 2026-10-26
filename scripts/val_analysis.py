@@ -2,7 +2,8 @@
 
 Input: an evaluate.py output folder whose policies are snapshots named .../seed_<s>/actor_<i>.pt (greedy
 `actor:` or sampled `actor-sampled:`). Rule:
-    main number  = each training seed's iteration-100 (final) snapshot, averaged over seeds
+    main number  = each training seed's final snapshot (its last iteration: 100 for E3-E5, 200 from E6),
+                   averaged over seeds
     secondary    = each seed's best snapshot by validation arrivals (optimistic: chosen on these scenarios)
 Differences are paired per scenario; 95% bootstrap CI over scenarios (10,000 resamples, seed 0). With
 several evaluation seeds (e.g. sampled actions with --seeds 0 1 2), each scenario's result is first
@@ -23,7 +24,6 @@ import numpy as np
 import pandas as pd
 
 COLUMNS = ["score", "completion_rate", "halts_while_moving", "cancelled_rate"]
-FINAL = 100
 
 
 def load_snapshots(folder: Path) -> pd.DataFrame:
@@ -43,6 +43,11 @@ def summary(e: pd.DataFrame) -> pd.DataFrame:
                   cancelled_rate=("cancelled_rate", "mean"), mean_lateness=("mean_lateness", "mean"),
                   halts_while_moving=("halts_while_moving", "mean"), gini_penalty=("gini_penalty", "mean"))
              .reset_index())
+
+
+def final_picks(e: pd.DataFrame) -> dict:
+    """Each training seed's last snapshot."""
+    return e.groupby("seed").iteration.max().to_dict()
 
 
 def per_scenario(e: pd.DataFrame, picks: dict) -> pd.DataFrame:
@@ -72,7 +77,7 @@ def load_ref(spec: str) -> tuple[str, pd.DataFrame]:
 def load_ref_final(spec: str) -> tuple[str, pd.DataFrame]:
     name, folder = spec.split("=", 1)
     e = load_snapshots(Path(folder))
-    return name, per_scenario(e, {s: FINAL for s in sorted(e.seed.unique())})
+    return name, per_scenario(e, final_picks(e))
 
 
 def analyse(folder: Path, refs: dict) -> dict:
@@ -81,7 +86,7 @@ def analyse(folder: Path, refs: dict) -> dict:
     s = summary(e)
     best = s.loc[s.groupby("seed").completion_rate.idxmax()].set_index("seed").iteration.to_dict()
     out = {"summary": s}
-    for label, picks in (("final", {sd: FINAL for sd in sorted(e.seed.unique())}), ("best", best)):
+    for label, picks in (("final", final_picks(e)), ("best", best)):
         chosen = s.set_index(["seed", "iteration"]).loc[list(picks.items())]
         m = per_scenario(e, picks)
         out[label] = {
@@ -113,7 +118,7 @@ def main(argv=None):
     print(s.pivot(index="seed", columns="iteration", values="completion_rate").map(pct).to_string())
     print("Never departed by iteration:")
     print(s.pivot(index="seed", columns="iteration", values="cancelled_rate").map(pct).to_string())
-    for label, title in (("final", f"Main: iteration {FINAL}"), ("best", "Secondary: best by validation arrivals (optimistic)")):
+    for label, title in (("final", "Main: final snapshot"), ("best", "Secondary: best by validation arrivals (optimistic)")):
         r = result[label]
         print(f"\n{title}, picks {r['picks']}")
         for sd, v in r["per_seed"].items():

@@ -18,8 +18,10 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+from flatmarl.envs import clear_flatland_caches
 from flatmarl.metrics import episode_metrics
-from flatmarl.models import OBS_SIZE, make_actor, masked_policy
+from flatmarl.models import OBS_SIZE, CentralCritic, make_actor, masked_policy, policy_and_values
+from flatmarl.obs import global_state
 from flatmarl.reward import RewardShaper
 
 
@@ -32,6 +34,7 @@ class Segment:
     values: np.ndarray     # (n,) float32, the critic's estimate at each decision
     rewards: np.ndarray    # (n,) float32: discounted training reward until the next decision
     discounts: np.ndarray  # (n,) float32: gamma ** (steps until the next decision)
+    global_state: np.ndarray | None = None  # (n, 40) float32, MAPPO only: obs.global_state at each decision
 
 
 @dataclass
@@ -44,13 +47,19 @@ class EpisodeResult:
 
 
 def collect_episode(job) -> EpisodeResult:
-    """job = (env_fn, actor_state_dict, seed, reward_config, gamma[, greedy]). env_fn(seed=...) builds
-    the env, e.g. functools.partial(make_env, ...) or functools.partial(make_pool_env, pool=...).
-    greedy=True always takes the most likely legal action, as evaluate.py does (default: sample)."""
+    """job = (env_fn, actor_state_dict, seed, reward_config, gamma[, greedy[, critic_state_dict]]).
+    env_fn(seed=...) builds the env, e.g. functools.partial(make_env, ...) or
+    functools.partial(make_pool_env, pool=...). greedy=True always takes the most likely legal action,
+    as evaluate.py does (default: sample). critic_state_dict (MAPPO): a CentralCritic's weights; values
+    then include it and each decision also records the global state."""
     env_fn, actor_state, seed, reward_config, gamma, *rest = job
     greedy = bool(rest[0]) if rest else False
     actor = make_actor()
     actor.load_state_dict(actor_state)
+    critic = None
+    if len(rest) > 1 and rest[1] is not None:
+        critic = CentralCritic()
+        critic.load_state_dict(rest[1])
     generator = torch.Generator().manual_seed(seed)
     shaper = RewardShaper(gamma=gamma, **reward_config)
 
@@ -58,7 +67,8 @@ def collect_episode(job) -> EpisodeResult:
     obs, _ = env.reset()
     shaper.start(env)
     handles = env.get_agent_handles()
-    rec = {h: {"obs": [], "actions": [], "logprobs": [], "values": [], "rewards": [], "steps": []} for h in handles}
+    rec = {h: {"obs": [], "actions": [], "logprobs": [], "values": [], "rewards": [], "steps": [], "global": []}
+           for h in handles}
     unattributed = 0.0
     steps = 0
 
@@ -68,8 +78,11 @@ def collect_episode(job) -> EpisodeResult:
         actions = {h: 0 for h in handles}  # do-nothing: the only legal action, or ignored while broken
         if deciding:
             x = torch.from_numpy(np.stack([obs[h] for h in deciding]))
+            g = None
+            if critic is not None:  # the same summary for every deciding train this step
+                g = torch.from_numpy(global_state(env, obs)).expand(len(deciding), -1)
             with torch.no_grad():
-                logits, values = actor(x[:, :OBS_SIZE])
+                logits, values = policy_and_values(actor, x[:, :OBS_SIZE], critic, g)
                 dist = masked_policy(logits, x[:, OBS_SIZE:])
                 if greedy:
                     chosen = dist.probs.argmax(dim=1)
@@ -84,6 +97,8 @@ def collect_episode(job) -> EpisodeResult:
                 r["values"].append(float(values[i]))
                 r["rewards"].append(0.0)
                 r["steps"].append(0)
+                if g is not None:
+                    r["global"].append(g[i].numpy())
                 actions[h] = int(chosen[i])
 
         obs, rewards, dones, _ = env.step(actions)
@@ -103,7 +118,10 @@ def collect_episode(job) -> EpisodeResult:
                         logprobs=np.array(r["logprobs"], dtype=np.float32),
                         values=np.array(r["values"], dtype=np.float32),
                         rewards=np.array(r["rewards"], dtype=np.float32),
-                        discounts=(gamma ** np.array(r["steps"], dtype=np.float64)).astype(np.float32))
+                        discounts=(gamma ** np.array(r["steps"], dtype=np.float64)).astype(np.float32),
+                        global_state=np.stack(r["global"]).astype(np.float32) if r["global"] else None)
                 for r in rec.values() if r["actions"]]
-    return EpisodeResult(segments=segments, metrics=episode_metrics(env).as_row(), unattributed=unattributed,
+    metrics = episode_metrics(env).as_row()
+    clear_flatland_caches()  # flatland's caches would otherwise keep every env alive (~45 MB per episode)
+    return EpisodeResult(segments=segments, metrics=metrics, unattributed=unattributed,
                          exempted_halts=shaper.exempted_halts, agent_steps=steps * len(handles))

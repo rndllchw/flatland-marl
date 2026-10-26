@@ -1,8 +1,8 @@
 """JUDGE + ADJUST: advantages (GAE) and the PPO update.
 
 IPPO: one shared actor for all trains; its value head is the critic and sees only the train's own
-observation. MAPPO (Member 3) would replace `values` below with a central critic's estimates from a
-summary of all trains (obs.py), and train that critic instead of the actor's value head.
+observation. MAPPO: the same, plus a CentralCritic branch (models.py) that also sees a summary of all
+trains (obs.global_state); its weights are trained together with the actor's. Nothing else differs.
 
 Value-target normalisation (ppo.value_norm, default off; on for both arms from 25 Oct): the critic
 learns returns standardised by a running mean/std (ValueNormalizer), as recommended for PPO/MAPPO by
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from flatmarl.models import OBS_SIZE, masked_policy
+from flatmarl.models import OBS_SIZE, masked_policy, policy_and_values
 
 
 class ValueNormalizer:
@@ -79,6 +79,7 @@ class Batch:
     logprobs: torch.Tensor     # (N,) under the collecting policy
     advantages: torch.Tensor   # (N,)
     returns: torch.Tensor      # (N,) value targets
+    global_state: torch.Tensor | None = None  # (N, 40), MAPPO only
 
 
 def make_batch(results, lam: float, normalizer: ValueNormalizer | None = None) -> Batch:
@@ -99,19 +100,25 @@ def make_batch(results, lam: float, normalizer: ValueNormalizer | None = None) -
     if normalizer is not None:
         normalizer.update(arrays["returns"])
         arrays["returns"] = normalizer.normalize(arrays["returns"])
+    globals_ = [s.global_state for r in results for s in r.segments]
+    if any(g is not None for g in globals_):
+        arrays["global_state"] = np.concatenate(globals_)
     return Batch(**{k: torch.from_numpy(v) for k, v in arrays.items()})
 
 
-def ppo_update(actor, optimizer, batch: Batch, cfg: dict, generator: torch.Generator) -> dict:
-    """Clipped PPO on `batch` for cfg["epochs"] passes in minibatches. Returns mean training stats."""
+def ppo_update(actor, optimizer, batch: Batch, cfg: dict, generator: torch.Generator, critic=None) -> dict:
+    """Clipped PPO on `batch` for cfg["epochs"] passes in minibatches. Returns mean training stats.
+    critic (MAPPO): the CentralCritic; the optimizer must hold its parameters too."""
     n = len(batch.actions)
+    params = list(actor.parameters()) + (list(critic.parameters()) if critic is not None else [])
     totals = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "approx_kl": 0.0, "clip_fraction": 0.0}
     updates = 0
     for _ in range(cfg["epochs"]):
         order = torch.randperm(n, generator=generator)
         for start in range(0, n, cfg["minibatch_size"]):
             idx = order[start:start + cfg["minibatch_size"]]
-            logits, values = actor(batch.obs[idx, :OBS_SIZE])
+            g = batch.global_state[idx] if critic is not None else None
+            logits, values = policy_and_values(actor, batch.obs[idx, :OBS_SIZE], critic, g)
             dist = masked_policy(logits, batch.obs[idx, OBS_SIZE:])
             log_ratio = dist.log_prob(batch.actions[idx]) - batch.logprobs[idx]
             ratio = log_ratio.exp()
@@ -128,7 +135,7 @@ def ppo_update(actor, optimizer, batch: Batch, cfg: dict, generator: torch.Gener
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(actor.parameters(), cfg["max_grad_norm"])
+            torch.nn.utils.clip_grad_norm_(params, cfg["max_grad_norm"])
             optimizer.step()
 
             with torch.no_grad():

@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flatmarl import EXAMPLE_CURRICULUM, ROOT
-from flatmarl.envs import DISRUPTIONS, load_scenario
+from flatmarl.envs import DISRUPTIONS, clear_flatland_caches, load_scenario
 from flatmarl.metrics import episode_metrics
 from flatmarl.policies import make_policy
 
@@ -51,6 +51,7 @@ def run_episode(job):
         if dones["__all__"]:
             break
     m = episode_metrics(env)
+    clear_flatland_caches()  # flatland's caches would otherwise keep every env alive (~45 MB per episode)
 
     ids = {"policy": policy_name, "scenario": Path(scenario).stem, "disruption": disruption,
            "seed": "" if seed is None else seed}
@@ -137,7 +138,8 @@ def main(argv=None):
     start = time.time()
     if args.workers > 1:
         # Workers receive only recipes and build their own env + policy (envs can't be pickled).
-        with multiprocessing.get_context("spawn").Pool(args.workers) as pool:
+        # maxtasksperchild: fresh worker processes every 50 episodes, a safeguard against memory growth
+        with multiprocessing.get_context("spawn").Pool(args.workers, maxtasksperchild=50) as pool:
             results = []
             for i, result in enumerate(pool.imap(run_episode, jobs), 1):  # imap keeps job order
                 results.append(result)

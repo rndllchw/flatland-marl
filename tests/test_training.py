@@ -18,7 +18,10 @@ from flatland.envs.step_utils.states import TrainState
 from flatmarl import ROOT, STARTER_KIT
 from flatmarl.envs import load_scenario, make_env
 from flatmarl.metrics import PENALTY_TYPES, episode_metrics
-from flatmarl.models import OBS_SIZE, make_actor, masked_policy
+from types import SimpleNamespace
+
+from flatmarl.models import OBS_SIZE, CentralCritic, make_actor, masked_policy, policy_and_values
+from flatmarl.obs import GLOBAL_SIZE, global_state
 from flatmarl.policies import STARTER_KIT_CHECKPOINT, make_policy
 from flatmarl.ppo import ValueNormalizer, gae, make_batch, ppo_update
 from flatmarl.reward import RewardShaper
@@ -91,7 +94,10 @@ def write_config(tmp_path, workers=1, **overrides):
            "train": {"iterations": 2, "episodes_per_iteration": 2, "workers": workers, "save_every": 1,
                      "eval_episodes": 2}}
     for section, values in overrides.items():
-        cfg.setdefault(section, {}).update(values)
+        if isinstance(values, dict):
+            cfg.setdefault(section, {}).update(values)
+        else:                                       # a top-level value, e.g. critic="central"
+            cfg[section] = values
     path = tmp_path / f"tiny_w{workers}.yaml"
     path.write_text(yaml.safe_dump(cfg))
     return path
@@ -121,9 +127,9 @@ def test_train_is_reproducible_and_worker_count_independent(tmp_path):
 def test_config_errors(tmp_path):
     with pytest.raises(ValueError, match="unknown"):
         train.load_config(write_config(tmp_path, ppo={"learning_rate": 0.1}))   # typo for lr
-    with pytest.raises(NotImplementedError, match="MAPPO"):
-        path = tmp_path / "central.yaml"
-        path.write_text(yaml.safe_dump({"name": "x", "critic": "central"}))
+    with pytest.raises(ValueError, match="critic must be one of"):
+        path = tmp_path / "centre.yaml"
+        path.write_text(yaml.safe_dump({"name": "x", "critic": "centre"}))   # typo for central
         train.load_config(path)
     with pytest.raises(ValueError, match="env.pool"):
         train.env_recipe({**train.DEFAULTS["env"], "source": "pool"})
@@ -325,3 +331,86 @@ def test_train_logs_the_budget_and_sampled_checks_differ_from_greedy(tmp_path):
     assert read(sampled) != read(greedy)                   # and really sample
     with pytest.raises(ValueError, match="eval_mode"):
         train.load_config(write_config(tmp_path, train={"eval_mode": "argmax"}))
+
+
+# MAPPO: critic: central (option A, 26 Oct)
+
+def test_global_state_matches_a_hand_computation():
+    S = TrainState
+    agents = [SimpleNamespace(handle=h, state=s) for h, s in
+              enumerate([S.WAITING, S.READY_TO_DEPART, S.MOVING, S.MALFUNCTION, S.DONE])]
+    obs = {h: np.full(OBS_SIZE + 5, float(h), dtype=np.float32) for h in range(5)}
+    env = SimpleNamespace(agents=agents, _elapsed_steps=30, _max_episode_steps=120)
+    g = global_state(env, obs)
+    assert g.shape == (GLOBAL_SIZE,) and g.dtype == np.float32
+    assert np.allclose(g[:OBS_SIZE], (1 + 2 + 3) / 3)            # active: ready, moving, broken down
+    assert g[OBS_SIZE:] == pytest.approx([1 / 5, 2 / 5, 1 / 5, 30 / 120])  # done, on map, broken, time
+    for a in agents:                                              # nobody active: zeros, not NaN
+        a.state = S.WAITING
+    assert (global_state(env, obs)[:OBS_SIZE] == 0).all()
+
+
+def test_central_critic_starts_equal_to_the_local_critic_and_records_global_state():
+    env_fn = functools.partial(load_scenario, SAMPLE, disruption="breakdowns")
+    state = checkpoint_state()
+    critic = CentralCritic()
+    local = collect_episode((env_fn, state, 3, {"scale": 0.01}, 0.99))
+    central = collect_episode((env_fn, state, 3, {"scale": 0.01}, 0.99, False, state_of(critic)))
+    for a, b in zip(local.segments, central.segments, strict=True):
+        assert np.array_equal(a.actions, b.actions) and np.array_equal(a.values, b.values)
+        assert a.global_state is None and b.global_state.shape == (len(b.actions), GLOBAL_SIZE)
+    batch = make_batch([central], 0.95)
+    assert batch.global_state.shape == (len(batch.actions), GLOBAL_SIZE)
+
+
+def test_rollout_values_include_a_trained_central_branch():
+    # With a non-zero branch, the recorded values (which feed GAE) must be value head + central branch.
+    env_fn = functools.partial(load_scenario, SAMPLE, disruption="breakdowns")
+    actor, critic = make_actor(STARTER_KIT_CHECKPOINT), CentralCritic()
+    torch.nn.init.normal_(critic.net[-1].weight, std=0.5)
+    result = collect_episode((env_fn, state_of(actor), 3, {"scale": 0.01}, 0.99, False, state_of(critic)))
+    s = result.segments[0]
+    with torch.no_grad():
+        expected = policy_and_values(actor, torch.from_numpy(s.obs[:, :OBS_SIZE]), critic,
+                                     torch.from_numpy(s.global_state))[1].numpy()
+        local = policy_and_values(actor, torch.from_numpy(s.obs[:, :OBS_SIZE]))[1].numpy()
+    assert np.allclose(s.values, expected, atol=1e-6) and not np.allclose(s.values, local)
+
+
+def test_ppo_update_trains_the_central_critic_and_the_actor():
+    env_fn = functools.partial(load_scenario, SAMPLE, disruption="breakdowns")
+    actor, critic = make_actor(STARTER_KIT_CHECKPOINT), CentralCritic()
+    result = collect_episode((env_fn, state_of(actor), 3, {"scale": 0.01}, 0.99, False, state_of(critic)))
+    before_actor, before_critic = state_of(actor), state_of(critic)
+    optimizer = torch.optim.Adam(list(actor.parameters()) + list(critic.parameters()), lr=1e-3)
+    ppo_update(actor, optimizer, make_batch([result], 0.95), PPO, torch.Generator().manual_seed(0), critic)
+    assert any(not torch.equal(before_critic[k], v) for k, v in critic.state_dict().items())
+    assert any(not torch.equal(before_actor[k], v) for k, v in actor.state_dict().items())
+    x = torch.from_numpy(result.segments[0].obs[:, :OBS_SIZE])
+    g = torch.from_numpy(result.segments[0].global_state)
+    with torch.no_grad():                                         # the central branch now contributes
+        assert not torch.allclose(policy_and_values(actor, x, critic, g)[1], policy_and_values(actor, x)[1])
+
+
+def test_train_mappo_end_to_end_keeps_the_actor_decentralised(tmp_path):
+    out = tmp_path / "run"
+    config = write_config(tmp_path, critic="central")
+    train.main(["--config", str(config), "--seed", "0", "--out", str(out)])
+    assert set(torch.load(out / "actor.pt")) == {"model"}             # starter-kit format, no critic inside
+    last = lambda i: torch.load(out / f"critic_{i}.pt")["critic"]["net.2.weight"]  # noqa: E731
+    assert last(1).abs().sum() > 0 and not torch.equal(last(1), last(2))   # the critic is being trained
+    for prefix in ("actor", "actor-sampled"):
+        policy, _ = make_policy(f"{prefix}:{out / 'actor.pt'}")
+        assert policy is not None
+
+
+def test_collecting_an_episode_leaves_no_env_behind():
+    import gc
+    from flatland.envs.rail_env import RailEnv
+
+    def alive():
+        gc.collect()
+        return sum(isinstance(o, RailEnv) for o in gc.get_objects())
+    before = alive()
+    collect_episode((ONE_TRAIN, checkpoint_state(), 5000, {"scale": 0.01}, 0.99))
+    assert alive() == before
