@@ -724,4 +724,84 @@ seeing test results; anything added later is marked as exploratory.**
 - **Check 2 (duplicates):** fingerprints of every train's start, direction, target, timetable and waypoints (plus max
   steps) over the 2,000 training, 50 validation and 200 test scenarios: **0 duplicates**. Fingerprints checked to be
   stable (same file twice → equal) and free of memory addresses.
+- **Committed** as `942def9` (26 Oct, 17:25): the three test sets together with this plan, before any test evaluation.
+- **Evaluation layout:** `results/e8_test/<set>/<none|breakdowns>/{e6_sampled, e7_sampled, e6_greedy, e7_greedy,
+  baselines}` (one folder per arm, since `val_analysis.py` identifies snapshots by `seed_<s>/actor_<i>`). Sampled
+  runs and all breakdown runs use `--seeds 0 1 2`; greedy without disruptions uses `--seeds 0` (the seed then
+  changes nothing; tested). `baselines` = checkpoint sampled, checkpoint greedy, heuristic.
+
+### E8 results (added after evaluation, 26 Oct; the plan above is unchanged)
+
+- **Run:** `zsh scripts/run_e8.sh` from the repo root (exact command per folder in each `run.json`; 30 evaluations, 18,000
+  episodes, 17:26–18:13 on 10 workers), all on `942def9` (`uncommitted_changes: true` only because of this file's
+  notes and the untracked results; no change to `src/` or `scripts/evaluate.py` since `942def9`). Analysis:
+  `python scripts/e8_analysis.py` → `results/e8_test/summary_arrivals.csv`, `summary_metrics.csv`; the primary
+  number also via `scripts/val_analysis.py results/e8_test/t1_scene1_a5-10_ll2/none/e7_sampled --ref-final
+  E6_IPPO=results/e8_test/t1_scene1_a5-10_ll2/none/e6_sampled` (same value).
+
+**Primary outcome (T1, no disruptions, sampled):**
+
+| | Arrived | Per training seed |
+|---|---|---|
+| **MAPPO (E7)** | **66.9%** | 66% / 70% / 65% |
+| IPPO (E6) | 61.5% | 63% / 59% / 62% |
+| **MAPPO − IPPO** | **+5.4% [+4.0, +6.8]** | every MAPPO seed above every IPPO seed |
+
+**Secondary: arrivals, sampled** (95% CI over scenarios):
+
+| Set | Disruption | IPPO | MAPPO | MAPPO − IPPO | Checkpoint (sampled) | Heuristic | MAPPO − heuristic |
+|---|---|---|---|---|---|---|---|
+| T1 | none | 61.5% | 66.9% | +5.4% [+4.0, +6.8] | 37% | 81.0% | −14.1% [−18.8, −9.3] |
+| T1 | breakdowns | 60.9% | 65.9% | +5.0% [+3.9, +6.1] | 37% | 78.9% | −13.0% [−17.5, −8.4] |
+| T2 (15–20 trains) | none | 54.5% | 58.9% | +4.5% [+2.7, +6.2] | 32% | 61.5% | −2.5% [−9.3, +4.5] |
+| T2 | breakdowns | 53.7% | 57.6% | +3.8% [+2.2, +5.5] | 32% | 58.6% | −1.0% [−6.4, +4.6] |
+| T3 (scene 4) | none | 72.2% | 77.6% | +5.3% [+3.3, +7.3] | 57% | 94.8% | −17.3% [−21.5, −13.2] |
+| T3 | breakdowns | 70.0% | 77.2% | +7.2% [+5.2, +9.2] | 56% | 94.4% | −17.1% [−20.9, −13.5] |
+
+Each arm vs the sampled checkpoint: IPPO +14% to +25%, MAPPO +20% to +30%, all CIs above 0
+(`summary_arrivals.csv`).
+
+**Secondary: arrivals, greedy (top action):**
+
+| Set | Disruption | IPPO | MAPPO | MAPPO − IPPO | Checkpoint (greedy) |
+|---|---|---|---|---|---|
+| T1 | none | 23.8% | 61.7% | +37.9% [+34.9, +40.8] | 34% |
+| T1 | breakdowns | 22.8% | 57.1% | +34.3% [+31.8, +36.8] | 31% |
+| T2 | none | 25.8% | 52.1% | +26.3% [+23.6, +29.0] | 31% |
+| T2 | breakdowns | 24.6% | 47.3% | +22.7% [+20.4, +25.0] | 28% |
+| T3 | none | 24.4% | 72.5% | +48.1% [+44.6, +51.7] | 53% |
+| T3 | breakdowns | 22.6% | 68.7% | +46.1% [+43.0, +49.2] | 48% |
+
+**Secondary: other metrics, sampled, T1 without disruptions** (all sets in `summary_metrics.csv`):
+
+| Metric | IPPO | MAPPO | MAPPO − IPPO | Heuristic |
+|---|---|---|---|---|
+| Official score | 0.830 | 0.823 | −0.01 [−0.02, 0.00] | 0.592 |
+| Mean lateness of arrived trains (steps) | 1.87 | 1.17 | −0.69 [−1.16, −0.25] | 3.12 |
+| p90 lateness (steps) | 4.94 | 3.12 | −1.82 [−3.04, −0.68] | 8.66 |
+| Halts per game | 1.23 | 1.53 | +0.30 [+0.15, +0.44] | 6.27 |
+| Penalty Gini | 0.61 | 0.62 | +0.01 [−0.00, +0.03] | 0.50 |
+
+Elsewhere: MAPPO's lateness is lower in every set (p90 −0.9 to −3.2 steps; CIs exclude 0 on T1 none, T2 none and
+T2 breakdowns); its score is equal without disruptions and +0.01 to +0.03 with breakdowns; halts are higher without
+disruptions on T1/T2 (+0.3/+0.5) and lower with breakdowns on T2 (−3.8 [−5.3, −2.5]); Gini differs by ≤ 0.015.
+Never-departed trains, sampled: ≤ 0.02% for both arms.
+
+- **Conclusions:**
+  - **Primary: MAPPO gets more trains home than IPPO on unseen test scenarios, +5.4% [+4.0, +6.8]**, confirming
+    validation (+6% [+4, +8]). Every MAPPO seed beats every IPPO seed on T1.
+  - **The advantage holds in every secondary setting with sampled actions** (+3.8% to +7.2%; all CIs above 0):
+    with breakdowns, with denser traffic (T2) and on an unseen part of the map (T3). Both arms only ever trained on
+    scene 1, 5–10 trains, no breakdowns.
+  - **MAPPO also makes arrived trains less late** (T1 mean −0.69, p90 −1.82 steps), with the same official score
+    and unchanged fairness (Gini).
+  - **Dense traffic (T2): MAPPO matches the heuristic on arrivals** (−2.5% [−9.3, +4.5]; with breakdowns −1.0%
+    [−6.4, +4.6]) at a much higher official score (0.73 vs 0.47). The heuristic loses 20 points from T1 to T2; our
+    policies lose 7–8. On T1 and T3 the heuristic still leads by 13–17 points.
+  - **Greedy (top-action) execution separates the arms sharply:** IPPO collapses to 23–26% (below the checkpoint),
+    MAPPO keeps 47–73%, close to its sampled results. IPPO relies on random staggering of departures (see
+    "Sampled evaluation"); MAPPO's policy works without that randomness. Why is open (exploratory analysis next).
+  - Caveats: 3 training seeds per arm; CIs cover scenario variation only; many secondary comparisons, no
+    multiple-comparison correction; training on scene 1, 5–10 trains, no intermediate stops (stop-serving not
+    tested); the official score barely rewards extra arrivals, so it does not separate the arms.
 

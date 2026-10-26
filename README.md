@@ -329,7 +329,7 @@ scripts/evaluate.py            ✅ run policies over saved scenarios -> episodes
 tests/test_evaluate.py         ✅ 11 tests for evaluate.py (incl. actor-sampled, memory)
 scripts/val_analysis.py        ✅ snapshot comparison on validation (E3 rule, paired bootstrap); tests/test_val_analysis.py
 results/baselines_example_curriculum/  ✅ first baseline table (5 policies x 27 scenarios)
-scripts/make_eval_sets.py      ⬜ build frozen val/test scenario sets
+eval_sets/test/                ✅ frozen test sets T1–T3 (200 scenarios; built with make_scenario_pool.py, see EXPERIMENTS.md E8)
 src/flatmarl/envs.py           ✅ + ScenarioPoolEnv / make_pool_env (replay a random pooled scenario)
 scripts/make_scenario_pool.py  ✅ pre-generate scenario pools (parallel, resumable)
 tests/test_pool.py             ✅ 7 tests for pools
@@ -347,6 +347,8 @@ results/e6_training/           ✅ E6 (IPPO arm) networks every 10 iterations to
 results/e6_val_sampled/        ✅ E6 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
 results/e7_training/           ✅ E7 (MAPPO arm) actors + critics every 10 iterations to 200, logs, seeds 0–2
 results/e7_val_sampled/        ✅ E7 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
+results/e8_test/               ✅ E8: IPPO vs MAPPO vs baselines on the test sets (+ summary_arrivals.csv, summary_metrics.csv)
+scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysis
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
@@ -421,8 +423,16 @@ enough. Its first 100 iterations reproduce E5 bit for bit. Results: `results/e6_
 sampled validation (50 scenarios, 3 training seeds each): **MAPPO 70% arrived vs IPPO 64%, +6% [+4, +8]**; every
 MAPPO seed above every IPPO seed; better in 40 of 50 scenarios; same official score; slightly less lateness. Averaged
 over the last 10 snapshots the gap is +2.4%, so the advantage is consistent but modest (about +2 to +6 points).
-MAPPO does not give way more (1.5 vs 1.3 halts per game); the heuristic still leads (86%). Validation only: the
-frozen test set is next. Results: `results/e7_training/`, `results/e7_val_sampled/`.
+MAPPO does not give way more (1.5 vs 1.3 halts per game); the heuristic still leads (86%). Results:
+`results/e7_training/`, `results/e7_val_sampled/`.
+
+**Main result: frozen test sets (E8, 26 Oct; analysis pre-registered).** 200 unseen scenarios: T1 (scene 1, 5–10
+trains, 100 scenarios), T2 (15–20 trains), T3 (scene 4, never trained on), each with and without breakdowns; final
+snapshots, sampled actions, 3 training seeds per arm. **Primary (T1, no disruptions): MAPPO 66.9% vs IPPO 61.5%
+arrived, +5.4% [+4.0, +6.8]**, every MAPPO seed above every IPPO seed. MAPPO is ahead in every setting (+3.8% to
++7.2%), with less lateness and the same score and fairness. In dense traffic (T2) MAPPO matches the heuristic on
+arrivals (−2.5% [−9.3, +4.5]); on T1/T3 the heuristic leads by 13–17 points. With greedy (top-action) execution
+IPPO collapses (23–26%) while MAPPO keeps 47–73%. Tables: `EXPERIMENTS.md` (E8), `results/e8_test/summary_*.csv`.
 
 ## Notes
 

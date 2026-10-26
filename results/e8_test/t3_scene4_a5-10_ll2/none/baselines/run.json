@@ -1,0 +1,83 @@
+{
+  "command": "python scripts/evaluate.py --scenarios eval_sets/test/t3_scene4_a5-10_ll2 --disruption none --out results/e8_test/t3_scene4_a5-10_ll2/none/baselines --workers 10 --seeds 0 1 2 --policies actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt checkpoint heuristic",
+  "args": {
+    "scenarios": "eval_sets/test/t3_scene4_a5-10_ll2",
+    "policies": [
+      "actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt",
+      "checkpoint",
+      "heuristic"
+    ],
+    "disruption": "none",
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "workers": 10,
+    "out": "results/e8_test/t3_scene4_a5-10_ll2/none/baselines",
+    "overwrite": false
+  },
+  "git": {
+    "commit": "942def9404de5c7ede712c726c7728a4cc84ea65",
+    "uncommitted_changes": true
+  },
+  "versions": {
+    "flatland-rl": "4.2.6",
+    "torch": "2.9.1"
+  },
+  "python": "3.12.10",
+  "date_utc": "2026-10-26T10:08:31+00:00",
+  "scenarios": [
+    "eval_sets/test/t3_scene4_a5-10_ll2/00.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/01.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/02.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/03.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/04.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/05.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/06.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/07.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/08.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/09.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/10.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/11.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/12.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/13.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/14.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/15.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/16.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/17.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/18.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/19.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/20.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/21.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/22.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/23.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/24.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/25.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/26.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/27.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/28.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/29.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/30.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/31.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/32.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/33.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/34.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/35.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/36.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/37.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/38.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/39.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/40.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/41.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/42.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/43.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/44.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/45.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/46.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/47.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/48.pkl",
+    "eval_sets/test/t3_scene4_a5-10_ll2/49.pkl"
+  ],
+  "episodes": 450
+}
