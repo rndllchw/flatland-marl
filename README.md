@@ -345,6 +345,8 @@ results/{e3,e5}_val_sampled/   ✅ E3 and E5 validation, sampled actions x 3 see
 results/val_sampled_baselines/ ✅ checkpoint on validation, sampled actions x 3 seeds
 results/e6_training/           ✅ E6 (IPPO arm) networks every 10 iterations to 200, logs, seeds 0–2
 results/e6_val_sampled/        ✅ E6 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
+results/e7_training/           ✅ E7 (MAPPO arm) actors + critics every 10 iterations to 200, logs, seeds 0–2
+results/e7_val_sampled/        ✅ E7 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
@@ -414,6 +416,13 @@ saved `actor.pt` never contains the critic (decentralised execution). `critic: l
 iteration ~120. Final snapshots, sampled validation: **64% arrived** (sd 2% over seeds), +16% [+11, +21] vs the
 checkpoint, +22% [+19, +24] vs E3, −22% vs the heuristic; +1% over E5's iteration 100, so 200 iterations is
 enough. Its first 100 iterations reproduce E5 bit for bit. Results: `results/e6_training/`, `results/e6_val_sampled/`.
+
+**MAPPO vs IPPO on validation (E7 vs E6, 26 Oct).** Identical setups except the critic's input. Final snapshots,
+sampled validation (50 scenarios, 3 training seeds each): **MAPPO 70% arrived vs IPPO 64%, +6% [+4, +8]**; every
+MAPPO seed above every IPPO seed; better in 40 of 50 scenarios; same official score; slightly less lateness. Averaged
+over the last 10 snapshots the gap is +2.4%, so the advantage is consistent but modest (about +2 to +6 points).
+MAPPO does not give way more (1.5 vs 1.3 halts per game); the heuristic still leads (86%). Validation only: the
+frozen test set is next. Results: `results/e7_training/`, `results/e7_val_sampled/`.
 
 ## Notes
 

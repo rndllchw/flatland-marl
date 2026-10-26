@@ -211,6 +211,14 @@ Halts per game fell from 4.6 to under 1 in every seed and stayed there.
   per seed × iteration). Seed 0's snapshots reproduce the earlier `e3_val_ippo` results scenario for scenario.
   Rule fixed before looking: main number = each seed's iteration-100 snapshot; secondary = each seed's best
   snapshot by validation arrivals. Differences are paired per scenario, 95% bootstrap CI over scenarios.
+  Rerun (all 30 snapshots; exact list in `results/e3_val_seeds/run.json`), then the analysis:
+  ```bash
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none \
+      --policies actor:results/e3_training/seed_0/actor_10.pt ... actor:results/e3_training/seed_2/actor_100.pt \
+      --out results/e3_val_seeds --workers 10
+  python scripts/val_analysis.py results/e3_val_seeds \
+      --ref checkpoint=results/e3_val_baselines:checkpoint heuristic=results/e3_val_baselines:heuristic
+  ```
 
   **Validation arrivals by iteration:**
 
@@ -435,7 +443,10 @@ final snapshots +33% [+30, +37]. (E3's best snapshots: 68%.) Chosen from 10 snap
   ```bash
   python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
       --policies actor-sampled:results/e5_training/seed_0/actor_10.pt ... actor-sampled:results/e5_training/seed_2/actor_100.pt \
-      --out results/e5_val_sampled --workers 10                 # and e3_training -> results/e3_val_sampled
+      --out results/e5_val_sampled --workers 10
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:results/e3_training/seed_0/actor_10.pt ... actor-sampled:results/e3_training/seed_2/actor_100.pt \
+      --out results/e3_val_sampled --workers 10
   python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
       --policies actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt --out results/val_sampled_baselines --workers 10
   python scripts/val_analysis.py results/e5_val_sampled --write-summary \
@@ -582,19 +593,89 @@ Secondary (best snapshot per seed by validation arrivals; optimistic): iteration
   - Caveats: validation scenarios only (frozen test set still to build); scene 1, 5–10 trains, no intermediate
     stops, no breakdowns; CIs cover scenario variation only.
 
-## E7: MAPPO, E6 with a central critic (planned)
+## E7: MAPPO, E6 with a central critic (26 Oct): the MAPPO arm
 
 - **Question (the research question):** with everything else identical to E6, does a critic that also sees all
   trains get more trains home than IPPO?
 - **Config:** `configs/mappo_warm_scene1_a5-10_ll2_stopcost_200.yaml` = E6's config with `critic: central`
-  (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2.
+  (nothing else differs; checked with the loaded configs). Seeds 0, 1, 2 on `b6949c1` (no uncommitted changes).
 - **Code (26 Oct):** `src/flatmarl/obs.py` (`global_state`: mean of the 36 features over active trains + share
   arrived, on the map, broken down + elapsed time), `models.CentralCritic` (trunk features + global state
   → 128 Tanh → 1, last layer zero-initialised, added to the value head), `policy_and_values` used by the rollout
-  and the PPO update; the critic is saved as `critic_<i>.pt`, never in `actor.pt`. 5 new tests (and the config test updated), 7 mutants caught.
-  `critic: local` checked bit-identical to `7944171` on a small run (weights, `eval_log.csv`, `train_log.csv`).
-- **Rerun:** `python scripts/train.py --config configs/mappo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0`
-  (and 1, 2); then sampled validation of all 60 snapshots, and `scripts/val_analysis.py` with E6 as `--ref-final`.
-- **Judge by:** paired sampled validation arrivals, E7 vs E6 (final snapshots, mean of seeds), then the frozen
-  test set.
-- **Status:** not run yet. About 80 minutes per seed.
+  and the PPO update; the critic is saved as `critic_<i>.pt`, never in `actor.pt`. 5 new tests (and the config
+  test updated), 7 mutants caught. `critic: local` checked bit-identical to `7944171` on a small run.
+- **Rerun:**
+  ```bash
+  python scripts/train.py --config configs/mappo_warm_scene1_a5-10_ll2_stopcost_200.yaml --seed 0   # and 1, 2
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:results/e7_training/seed_0/actor_10.pt ... actor-sampled:results/e7_training/seed_2/actor_200.pt \
+      --out results/e7_val_sampled --workers 10                 # all 60 snapshots; full list in run.json
+  python scripts/val_analysis.py results/e7_val_sampled --write-summary \
+      --ref checkpoint=results/e3_val_baselines:checkpoint heuristic=results/e3_val_baselines:heuristic \
+            checkpoint_sampled=results/val_sampled_baselines:actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt \
+      --ref-final E6_IPPO=results/e6_val_sampled E3_sampled=results/e3_val_sampled
+  ```
+- **Outputs (committed):** `results/e7_training/` (actors and critics every 10 iterations + logs;
+  `sampled_checks_all_seeds.csv`) and `results/e7_val_sampled/` (`episodes.csv`, `trains.csv`, `run.json`,
+  `summary_by_snapshot.csv`). The validation's `run.json` says `uncommitted_changes: true` only because
+  `results/e7_training/` was not yet committed; the code was `b6949c1`.
+
+**Sanity checks on the start:** E7's check before training is identical to E6's to the last digit, and iteration
+1's training games are identical (same decisions, agent-steps, score, arrivals); only the update differs (value
+loss 0.576 vs IPPO's 0.631). From iteration 2 the actors differ and the games diverge. Exactly as designed.
+
+**Run health:** clean.
+
+| Seed | Iterations | Errors | Unattributed penalty | Entropy (min–max) | Largest `approx_kl` | Agent-steps / decisions | Time (wall) |
+|---|---|---|---|---|---|---|---|
+| 0 | 200 | none | 0 | 0.57–0.68 | 0.008 | 25.3M / 14.7M | 18 min |
+| 1 | 200 | none | 0 | 0.56–0.69 | 0.008 | 25.4M / 14.7M | 18 min |
+| 2 | 200 | none | 0 | 0.55–0.68 | 0.009 | 25.4M / 15.0M | 17 min |
+
+(18 min vs E6's 80–86: E6 was slowed by the memory leak, its iterations growing from ~5 s to 24–28 s; E7, after the
+fix, stays at ~5 s. Same work: agent-steps per run match within 0.4%.)
+
+**Validation arrivals by iteration, sampled** (mean of 3 training seeds, each the mean of 3 sampling seeds, 50
+scenarios; per seed in `summary_by_snapshot.csv`):
+
+| After iteration | 20 | 40 | 60 | 80 | 100 | 120 | 140 | 160 | 180 | 200 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E6 IPPO | 55% | 55% | 59% | 60% | 63% | 64% | 65% | 64% | 66% | 64% |
+| **E7 MAPPO** | 57% | 56% | 59% | 59% | 63% | 66% | 65% | 68% | 68% | **70%** |
+
+MAPPO is ahead at 15 of 20 snapshots. Never-departed trains: 0 of 69,300. Halts per game (mean of seeds): 4.2 at
+iteration 10, 3.0 at 20, then 1.2–1.8.
+
+**Main result, final snapshots (iteration 200, mean of seeds), sampled:**
+
+| | Arrived | sd over seeds | Score | Halts | Mean lateness (arrived trains) | Penalty Gini |
+|---|---|---|---|---|---|---|
+| heuristic | 86% | | 0.637 | 6.5 | | |
+| **E7 MAPPO** (seeds 69% / 72% / 68%) | **70%** | 2% | 0.839 | 1.5 | 1.19 | 0.62 |
+| E6 IPPO (seeds 64% / 62% / 65%) | 64% | 2% | 0.844 | 1.3 | 1.50 | 0.61 |
+| checkpoint, sampled | 47% | | 0.527 | 4.6 | | |
+
+| Comparison (paired, 95% CI over scenarios) | Arrived | Score |
+|---|---|---|
+| **MAPPO vs IPPO (E7 vs E6)** | **+6% [+4, +8]** | 0.00 [−0.02, +0.01] |
+| MAPPO vs checkpoint (sampled) | +22% [+16, +28] | +0.31 [+0.26, +0.36] |
+| MAPPO vs heuristic | −16% [−22, −10] | +0.20 [+0.15, +0.26] |
+| MAPPO vs E3 | +28% [+24, +31] | +0.03 [+0.01, +0.05] |
+
+Per scenario, MAPPO is better in 40 of 50, equal in 3, worse in 7; the gain is similar with 5–7 trains (+6.7%,
+22 scenarios) and 8–10 trains (+5.6%, 28 scenarios). Secondary (best snapshot per seed; optimistic): iterations
+200, 200, 190, mean 71%, +7% [+5, +9] vs E6's final snapshots.
+
+- **Conclusions:**
+  - **MAPPO gets more trains home than IPPO**: +6% [+4, +8] at the final snapshots (the rule fixed in advance),
+    every MAPPO seed above every IPPO seed, better in 40 of 50 scenarios, with the same official score and
+    slightly less lateness. The arms differ only in what the critic sees, and start identical.
+  - **The size is between about +2% and +6%.** IPPO dips at iteration 200 (64% after 66% at 180–190) while MAPPO
+    peaks (70%); averaged over the last 10 snapshots (110–200) the gap is +2.4%. A consistent but modest
+    advantage; MAPPO may still be rising at 200.
+  - **Not through more giving way:** halts barely change (1.5 vs 1.3 per game) and the heuristic still leads by
+    16 points. How MAPPO gets more trains home is open (failure analysis on the test set).
+  - **Fairness unchanged** (penalty Gini 0.62 vs 0.61). The official score does not move because it barely
+    rewards extra arrivals.
+  - Caveats: validation scenarios only (frozen test set next); scene 1, 5–10 trains, no intermediate stops, no
+    breakdowns; CIs cover scenario variation only (seed spread 2% per arm, 3 seeds).
