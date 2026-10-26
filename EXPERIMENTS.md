@@ -679,3 +679,49 @@ Per scenario, MAPPO is better in 40 of 50, equal in 3, worse in 7; the gain is s
     rewards extra arrivals.
   - Caveats: validation scenarios only (frozen test set next); scene 1, 5–10 trains, no intermediate stops, no
     breakdowns; CIs cover scenario variation only (seed spread 2% per arm, 3 seeds).
+
+## E8: frozen test sets, IPPO (E6) vs MAPPO (E7) (pre-registered 26 Oct, before the sets were built)
+
+**This plan was written into this file before any test scenario existed (about 17:00 on 26 Oct; the sets were
+built at 17:04). It was not committed before the build, so git does not prove the order; the first commit
+containing the sets also contains this plan, and no test results. Nothing below may be changed after
+seeing test results; anything added later is marked as exploratory.**
+
+- **Test sets** (built once with `scripts/make_scenario_pool.py`, committed under `eval_sets/test/`, never
+  regenerated, never used for tuning; seeds disjoint from training 0–1,999 and validation 1,000,000–1,000,049):
+
+  | Set | Folder | Scenarios | Seeds |
+  |---|---|---|---|
+  | T1 (main) | `eval_sets/test/t1_scene1_a5-10_ll2` | scene 1, 5–10 trains, line length 2, 100 | 2,000,000–2,000,099 |
+  | T2 (denser) | `eval_sets/test/t2_scene1_a15-20_ll2` | scene 1, 15–20 trains, line length 2, 50 | 2,100,000–2,100,049 |
+  | T3 (unseen region) | `eval_sets/test/t3_scene4_a5-10_ll2` | scene 4, 5–10 trains, line length 2, 50 | 2,200,000–2,200,049 |
+
+  Each set is played with `--disruption none` and `--disruption breakdowns` (1/540 per train per step).
+- **Policies:** E6 (IPPO) and E7 (MAPPO), **final snapshots only** (`actor_200.pt`, seeds 0, 1, 2); the organisers'
+  checkpoint; the heuristic. Sampled actions (`actor-sampled:`, `--seeds 0 1 2`) for the networks; greedy
+  (`actor:`) as a secondary number. The heuristic is deterministic (run once per set and disruption setting,
+  with `--seeds 0 1 2` under breakdowns so it meets the same breakdown patterns).
+- **Primary outcome:** on T1 without disruptions, share of trains arrived, MAPPO minus IPPO: per scenario, the mean
+  over the 3 training seeds (each the mean over 3 sampling seeds) of E7 minus that of E6; reported as the mean over
+  scenarios with a 95% bootstrap CI over scenarios (10,000 resamples, seed 0), via `scripts/val_analysis.py`.
+- **Secondary outcomes:** the same comparison for score, mean lateness of arrived trains, halts per game, penalty
+  Gini and p90 lateness; on T1 with breakdowns, on T2 and T3; greedy instead of sampled; each arm vs the checkpoint
+  (sampled) and vs the heuristic; per training seed. No correction for multiple comparisons; secondary results are
+  reported as such.
+- **Checks before evaluating:** (1) whether a breakdown pattern depends on the policy (the report states which);
+  (2) no test scenario duplicates a training or validation scenario.
+- **Built (26 Oct, 17:04, after the plan above was written):**
+  ```bash
+  python scripts/make_scenario_pool.py --out eval_sets/test/t1_scene1_a5-10_ll2 --n 100 --scene scene_1 --n-agents 5 10 --line-length 2 --seed 2000000 --workers 10
+  python scripts/make_scenario_pool.py --out eval_sets/test/t2_scene1_a15-20_ll2 --n 50 --scene scene_1 --n-agents 15 20 --line-length 2 --seed 2100000 --workers 10
+  python scripts/make_scenario_pool.py --out eval_sets/test/t3_scene4_a5-10_ll2 --n 50 --scene scene_4 --n-agents 5 10 --line-length 2 --seed 2200000 --workers 10
+  ```
+  Trains per scenario: T1 5–10 (24/21/14/15/12/14 scenarios with 5…10), T2 15–20, T3 5–10. 9.3 MB in total. Each
+  folder's `pool.json` records the command, commit and date.
+- **Check 1 (breakdowns vs policy):** the same breakdown seed gives exactly the same breakdowns (train, step,
+  duration) under do-nothing, forward-only and the checkpoint (validation scenario 03, seeds 0 and 1). So all policies
+  meet identical breakdown patterns per seed (an episode that ends early skips later ones).
+- **Check 2 (duplicates):** fingerprints of every train's start, direction, target, timetable and waypoints (plus max
+  steps) over the 2,000 training, 50 validation and 200 test scenarios: **0 duplicates**. Fingerprints checked to be
+  stable (same file twice → equal) and free of memory addresses.
+
