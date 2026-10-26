@@ -805,3 +805,46 @@ Never-departed trains, sampled: ≤ 0.02% for both arms.
     multiple-comparison correction; training on scene 1, 5–10 trains, no intermediate stops (stop-serving not
     tested); the official score barely rewards extra arrivals, so it does not separate the arms.
 
+### E8 exploratory 1: why MAPPO survives greedy execution (26 Oct; not pre-registered)
+
+- **Question:** with top-action (greedy) execution IPPO collapses on the test sets (23–26% arrived) while MAPPO
+  keeps 47–73%. Why?
+- **Method:** `python scripts/explore_departures.py` → `results/e8_explore/departures.csv`. Final networks
+  (checkpoint, E6 and E7 seeds 0–2) on the first 20 **validation** scenarios (not the test sets, to avoid mining
+  them), no disruptions: (1) sampled play, action probabilities at every recorded decision, split into
+  *ready to depart* (only do-nothing and FORWARD legal) and *on the map*; (2) greedy play, steps each train waits
+  between becoming ready to depart and first moving.
+
+| Network | Mean P(go) when ready | Top action is go | Greedy: median wait (steps) | Greedy: waits > 20 steps | Greedy: never left | Test T1 greedy arrived |
+|---|---|---|---|---|---|---|
+| checkpoint | 0.92 | 100% | 1 | 0% | 0% | 34% |
+| IPPO s0 | 0.36 | 7% | 278 | 69% | 4% | 31% |
+| IPPO s1 | 0.41 | 0% | 424 | 94% | 12% | 16% |
+| IPPO s2 | 0.36 | 1% | 320 | 96% | 0% | 25% |
+| MAPPO s0 | 0.67 | 100% | 1 | 0% | 0% | 68% |
+| MAPPO s1 | 0.43 | 23% | 168 | 66% | 0% | 50% |
+| MAPPO s2 | 0.56 | 94% | 1 | 3% | 1% | 67% |
+
+(Last column: T1, no disruptions, greedy, per seed, from `results/e8_test/summary_arrivals.csv`. On the map both
+arms are about equally decisive: mean top-action probability 0.61–0.70.)
+
+- **Findings:**
+  - **IPPO's departure probability settles just below 0.5 (0.36–0.41).** With sampled actions a train then waits
+    ~1–2 steps on average, which staggers departures. Greedy execution instead makes it wait until P(go) passes 0.5,
+    which for IPPO takes hundreds of steps (median 278–424): greedy IPPO trains mostly leave very late rather than
+    never, which explains both the low arrivals and the small never-departed share (~5%) on the test sets.
+  - **Two of three MAPPO seeds settled above 0.5** (0.67, 0.56) and leave at once under greedy; the third (0.43)
+    waits like IPPO (median 168) and is MAPPO's weakest greedy seed on every test set. Likewise IPPO s1, the
+    longest waiter (median 424, 12% never leave), is IPPO's weakest greedy seed on every test set (9–20%).
+  - The difference between the arms is almost entirely in the departure decision.
+- **Interpretation (hypothesis, not tested):** with a local critic a train cannot see whether it is a good moment to
+  leave (that depends on the other trains), so IPPO hedges with a near coin-flip; the central critic sees how many
+  trains are active and on the map, which may give clearer departure feedback. Evidence is 2 of 3 MAPPO seeds vs 0
+  of 3 IPPO seeds: suggestive, not established. It also reinforces that greedy evaluation misreads such policies.
+
+### Next (paused 26 Oct, 21:00)
+
+E8 exploratory 2, failure analysis: classify trains that do not arrive (never departed / late departure / stuck or
+deadlocked / still travelling at the time limit) for IPPO, MAPPO and the heuristic on T1, plus 1–2 videos for the
+slides. Categories and thresholds still to be confirmed before anything is built.
+

@@ -349,6 +349,7 @@ results/e7_training/           ✅ E7 (MAPPO arm) actors + critics every 10 iter
 results/e7_val_sampled/        ✅ E7 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
 results/e8_test/               ✅ E8: IPPO vs MAPPO vs baselines on the test sets (+ summary_arrivals.csv, summary_metrics.csv)
 scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysis
+scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
