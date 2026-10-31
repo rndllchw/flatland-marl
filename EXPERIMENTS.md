@@ -842,9 +842,70 @@ arms are about equally decisive: mean top-action probability 0.61–0.70.)
   trains are active and on the map, which may give clearer departure feedback. Evidence is 2 of 3 MAPPO seeds vs 0
   of 3 IPPO seeds: suggestive, not established. It also reinforces that greedy evaluation misreads such policies.
 
-### Next (paused 26 Oct, 21:00)
+### E8 exploratory 2: how do the trains that miss their destination fail? (1 Nov; not pre-registered)
 
-E8 exploratory 2, failure analysis: classify trains that do not arrive (never departed / late departure / stuck or
-deadlocked / still travelling at the time limit) for IPPO, MAPPO and the heuristic on T1, plus 1–2 videos for the
-slides. Categories and thresholds still to be confirmed before anything is built.
+- **Question:** where do trains that do not arrive end up, and does that differ between IPPO, MAPPO and the
+  baselines?
+- **Method:** `python scripts/explore_failures.py` → `results/e8_explore/failures_trains.csv` (one row per train
+  that did not arrive) and `failures_summary.csv` (shares per policy and threshold pair). Replays the E8 primary
+  setting (T1, no disruptions, sampled, final networks, evaluation seeds 0–2; heuristic seed 0 only, as its three
+  seeds are identical without breakdowns: 2,200 episodes, ~6 min), recording each train's cell, state and action at
+  every step. The replay reproduced every stored E8 train (arrived, penalty) exactly: 15,664 of 15,664. Buckets
+  were agreed before the run, by where the train is at the time limit:
+  *never left* (never entered the map); *stuck* (same cell for the last ≥ 50 steps); *still driving* (moved within
+  the last 50 steps). Tag *left late*: entered the map > 20 steps after its earliest departure. After the first run
+  we added route numbers from flatland's distance map (shortest route from the start, cells driven, cells
+  re-entered, distance left at the end) and called a still-driving train **lost** if it drove at least its shortest
+  route. A "blocked vs chose to stop" split of *stuck* was dropped before the run: in a spot check the same two
+  trains sat in the same jam for ~240 steps under the checkpoint (asking to move ~90% of steps) and MAPPO s1 (0%).
 
+Shares of **all** trains (per train, so arrivals differ slightly from E8's per-episode means: IPPO 60.8% vs 61.5%,
+MAPPO 65.9% vs 66.9%):
+
+| Policy | Not arrived | Never left | Stuck | Still driving | of which lost |
+|---|---|---|---|---|---|
+| IPPO s0 / s1 / s2 | 38.2 / 41.1 / 38.4% | 0 | 7.9 / 6.2 / 5.8% | 30.3 / 34.8 / 32.6% | 30.1 / 34.7 / 32.6% |
+| MAPPO s0 / s1 / s2 | 35.0 / 30.7 / 36.6% | 0 (1 train) | 9.0 / 8.3 / 7.8% | 26.0 / 22.3 / 28.8% | 25.9 / 21.6 / 28.4% |
+| **IPPO** (seeds pooled) | **39.2%** | 0 | **6.6%** | **32.6%** | **32.5%** |
+| **MAPPO** (seeds pooled) | **34.1%** | 0 | **8.3%** | **25.7%** | **25.3%** |
+| Checkpoint (sampled) | 63.6% | 0 | 62.0% | 1.6% | 1.1% |
+| Heuristic | 20.4% | 0.8% | 8.6% | 11.0% | 0 |
+
+What the still-driving and stuck trains look like (medians unless stated):
+
+| | IPPO | MAPPO | Checkpoint | Heuristic |
+|---|---|---|---|---|
+| Still driving: drove ≥ shortest route | 100% | 98% | 69% | 0% |
+| Still driving: cells driven / shortest route | 1.64 | 1.64 | 1.53 | 0.73 |
+| Still driving: re-entered a cell (share) | 87% | 83% | 66% | 4% |
+| Still driving: cells driven / different cells | 481 / 128 | 483 / 132 | 398 / 133 | 222 / 223 |
+| Still driving: destination unreachable from final cell and direction | 94% | 93% | 51% | 0% |
+| Stuck: steps standing at the end | 317 | 318 | 346 | 395 |
+| Stuck: re-entered a cell (share) | 3% | 4% | 1% | 0% |
+
+- **Findings:**
+  - **The trained policies rarely jam; they get lost.** About a third of IPPO's trains and a quarter of MAPPO's
+    drive for the whole episode without arriving: they cover 1.6× their shortest route but only ~130 different
+    cells, i.e. they go round the same track several times, and at the end flatland's distance map has no route to
+    their destination from where they are facing (unreachable). Stuck trains are the minority (7–8% of trains).
+  - **MAPPO's lead comes from getting lost less** (lost 25.3% vs 32.5%, −7.2 points; per seed 21.6–28.4% vs
+    30.1–34.7%, no overlap). MAPPO is stuck slightly more often (+1.7 points; seed ranges overlap).
+  - **The checkpoint fails the other way:** 62% of its trains end stuck (jams), almost none get lost.
+  - **The heuristic's still-driving trains are not lost:** they drove less than their shortest route without loops
+    (it holds trains back, up to 399 steps; 6 never leave). Its stuck share (8.6%) is similar to the RL arms'.
+  - **Late departure explains none of the RL failures:** the longest wait of any failing IPPO or MAPPO train was
+    18 steps (none over the 20-step tag).
+  - **Robust to the thresholds:** stillness 25 / 50 / 100 steps changes any policy's stuck or still-driving share
+    by at most 0.6 points.
+- **Interpretation (hypothesis, not tested):** the actors pick turns badly once on the map, and a wrong turn can
+  lead into a loop from which the destination cannot be reached in the current direction; the tree observation may
+  not make the right turn clear enough. Why MAPPO gets lost less is open (its critic sees all trains, but the actor
+  is the same network shape as IPPO's). "Unreachable" is flatland's distance map; not yet checked by eye.
+- **Video candidates** (printed by the script): MAPPO success = MAPPO s1, scenario 08, evaluation seed 2 (10/10
+  arrived); IPPO stuck = IPPO s0, scenario 78, seed 1 (9 stuck, 1/10 arrived). Given the findings, a lost IPPO
+  train is the more representative failure to show.
+
+### Next (paused 1 Nov)
+
+Videos for the slides (a MAPPO success, an IPPO lost train; also a check by eye of the loop reading), then report
+figures and slides (P3: slides by 8 Nov).

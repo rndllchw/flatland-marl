@@ -350,6 +350,7 @@ results/e7_val_sampled/        ✅ E7 validation of all 60 snapshots, sampled x 
 results/e8_test/               ✅ E8: IPPO vs MAPPO vs baselines on the test sets (+ summary_arrivals.csv, summary_metrics.csv)
 scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysis
 scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
+scripts/explore_failures.py   ✅ exploratory: where non-arriving trains end up (never left / stuck / lost) → results/e8_explore/; tests/test_explore_failures.py
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
@@ -434,6 +435,12 @@ arrived, +5.4% [+4.0, +6.8]**, every MAPPO seed above every IPPO seed. MAPPO is 
 +7.2%), with less lateness and the same score and fairness. In dense traffic (T2) MAPPO matches the heuristic on
 arrivals (−2.5% [−9.3, +4.5]); on T1/T3 the heuristic leads by 13–17 points. With greedy (top-action) execution
 IPPO collapses (23–26%) while MAPPO keeps 47–73%. Tables: `EXPERIMENTS.md` (E8), `results/e8_test/summary_*.csv`.
+
+**How trains fail (exploratory, 1 Nov; T1, no disruptions, sampled).** The trained policies rarely jam; they get
+lost: 32.5% of IPPO's and 25.3% of MAPPO's trains drive the whole episode without arriving, covering 1.6× their
+shortest route but going round the same ~130 cells. Only 7–8% end stuck. MAPPO's lead is getting lost less. The
+starter-kit checkpoint fails the other way (62% of trains stuck). Details: `EXPERIMENTS.md` (E8 exploratory 2),
+`results/e8_explore/failures_*.csv`.
 
 ## Notes
 
