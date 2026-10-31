@@ -912,6 +912,13 @@ What the still-driving and stuck trains look like (medians unless stated):
   legend): this scenario was picked because MAPPO s1 solves it, but train 5 also gets lost under IPPO s0, IPPO s2
   and MAPPO s0, and MAPPO s0/s2 have 3–4 stuck trains here.
 
+### Report figures (1 Nov)
+
+`python scripts/make_figures.py` → `results/figures/`: five figures (`test_results`, `failures`, `validation_curves`,
+`reward_story`, `greedy_vs_sampled`) and two tables (`fairness_table`, `metrics_all_settings`), drawn only from the
+committed CSVs named above; no new analysis. What each shows and what its caption must say:
+`results/figures/README.md`.
+
 ### Next (paused 1 Nov)
 
-Report figures and slides (P3: slides by 8 Nov), from the committed CSVs and the videos above.
+Slides (P3: by Sun 8 Nov), from `results/figures/` and `results/e8_explore/videos/`.

@@ -352,6 +352,7 @@ scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysi
 scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
 scripts/explore_failures.py   ✅ exploratory: where non-arriving trains end up (never left / stuck / lost) → results/e8_explore/; tests/test_explore_failures.py
 scripts/make_videos.py        ✅ slide videos: one T1 scenario, MAPPO / IPPO / checkpoint (lost and stuck trains marked) → results/e8_explore/videos/
+scripts/make_figures.py       ✅ report/slide figures and tables from committed CSVs → results/figures/ (see its README for captions)
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 

@@ -1,0 +1,14 @@
+% Test set T1 (100 scenarios, 5–10 trains), no disruptions, sampled actions.
+% Per scenario: mean over 3 training x 3 evaluation seeds (heuristic: deterministic); then mean over scenarios. Difference: paired over scenarios, 95% bootstrap CI. Lateness only over trains that arrived, so the arms are averaged over slightly different trains. Gini: 0 = penalties shared equally, 1 = one train takes all.
+\begin{tabular}{lrrrr}
+\toprule
+T1, no disruptions & IPPO & MAPPO & MAPPO $-$ IPPO [95\% CI] & Heuristic \\
+\midrule
+Trains arrived (\%) & 61.5 & 66.9 & +5.4 [+4.0, +6.8] & 81.0 \\
+Official score & 0.830 & 0.823 & $-$0.006 [$-$0.016, +0.004] & 0.592 \\
+Mean lateness (steps) & 1.9 & 1.2 & $-$0.7 [$-$1.2, $-$0.2] & 3.1 \\
+p90 lateness (steps) & 4.9 & 3.1 & $-$1.8 [$-$3.0, $-$0.7] & 8.7 \\
+Halts while moving, per episode & 1.2 & 1.5 & +0.3 [+0.1, +0.4] & 6.3 \\
+Gini of train penalties & 0.611 & 0.622 & +0.012 [$-$0.005, +0.027] & 0.498 \\
+\bottomrule
+\end{tabular}
