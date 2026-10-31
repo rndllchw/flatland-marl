@@ -919,6 +919,51 @@ What the still-driving and stuck trains look like (medians unless stated):
 committed CSVs named above; no new analysis. What each shows and what its caption must say:
 `results/figures/README.md`.
 
+## E9: both arms trained to 400 iterations (planned 1 Nov, before any E9 run; secondary, post-hoc)
+
+**Status of this experiment:** decided *after* seeing the E8 test results and the E6/E7 validation curves, so it is
+**secondary**: it cannot replace E8's pre-registered result, and the test sets are no longer untouched for it. The
+plan below was written and committed before training started; anything added later is marked exploratory.
+
+- **Why:** over iterations 120–200 MAPPO's validation arrivals were still rising in every seed (+2.0 to +10.0 points
+  per 100 iterations; mean of iterations 151–200 68.3% vs 101–150 65.5%), IPPO's were flat (−1.8 to +3.4; 64.6% vs
+  64.3%). Does MAPPO keep improving, and does the MAPPO − IPPO gap change with twice the budget?
+- **Design:** E6 and E7 rerun from scratch with `train.iterations: 400` (`configs/{ippo,mappo}_warm_scene1_a5-10_ll2_
+  stopcost_400.yaml`; nothing else changed), seeds 0–2, same machine. Training is deterministic, so iterations 1–200
+  must reproduce E6/E7. Chosen over continuing from iteration 200 because the optimiser state, the value-normaliser
+  count and the random state were not saved: a continuation would restart Adam at iteration 201 in both arms.
+- **Check before anything else (stop rule):** every saved actor at iterations 10–200 (and, for MAPPO, critic) must be
+  bit-identical to `results/e6_training` / `results/e7_training`. If any differs, stop and report; nothing is evaluated.
+- **Final network:** iteration 400, fixed in advance (not the best validation snapshot), as in E8.
+- **Validation:** snapshots 210–400 (sampled, `pools/val_scene1_a5-10_ll2`, evaluation seeds 0–2), as E6/E7.
+  Iterations 10–200 reuse `results/{e6,e7}_val_sampled` (identical networks, identical evaluation).
+- **Test:** iteration-400 actors on T1–T3 × {none, breakdowns}, sampled, evaluation seeds 0–2 (as E8); greedy on T1
+  none only, seed 0 (secondary). The checkpoint, heuristic and iteration-200 results are reused from
+  `results/e8_test` (same scenarios and seeds).
+- **E9 primary outcome:** T1, no disruptions, sampled, share of trains arrived: MAPPO(400) − IPPO(400), per scenario
+  mean over 3 training × 3 evaluation seeds, paired over scenarios, 95% bootstrap CI (`val_analysis.paired_ci`,
+  10,000 resamples, seed 0), exactly as E8's primary.
+- **Secondary outcomes (all sampled unless said):**
+  1. each arm, 400 − 200 on T1 none (paired; same scenarios and evaluation seeds): does more training help?
+  2. change in the gap: [MAPPO(400) − IPPO(400)] − [MAPPO(200) − IPPO(200)], paired per scenario. The gap "widened"
+     or "narrowed" only if this CI excludes 0;
+  3. each arm at 400 vs the heuristic on T1 none;
+  4. the primary and outcome 1 in the other five test settings;
+  5. score, p90 lateness and penalty Gini at 400 (as E8's secondary metrics);
+  6. validation: mean of iterations 351–400 vs 151–200 per arm (has it levelled off?);
+  7. greedy T1 none at 400, per seed.
+- **Interpretation fixed in advance:** "MAPPO keeps improving" only if outcome 1's CI for MAPPO excludes 0. Whatever
+  the result, E8 stays the project's main result; E9 is reported next to it as "with twice the training budget".
+- **Cost:** training 6 × ~34 min ≈ 3.4 h; validation 18,000 episodes ≈ 35 min; test 7,200 + 600 episodes ≈ 25 min.
+- **Commands** (run from the repo root; filled in when run, any deviation recorded here):
+  ```
+  python scripts/train.py --config configs/ippo_warm_scene1_a5-10_ll2_stopcost_400.yaml --seed S --out results/e9_ippo_training/seed_S
+  python scripts/train.py --config configs/mappo_warm_scene1_a5-10_ll2_stopcost_400.yaml --seed S --out results/e9_mappo_training/seed_S
+  ```
+  then the bit-identity check, validation into `results/e9_{ippo,mappo}_val_sampled`, test into `results/e9_test`,
+  and an analysis script for the outcomes above (to be written before the test evaluation runs).
+
 ### Next (paused 1 Nov)
 
-Slides (P3: by Sun 8 Nov), from `results/figures/` and `results/e8_explore/videos/`.
+E9 (above): commit the plan and configs, then train. Slides (P3: by Sun 8 Nov) after E9, from `results/figures/` and
+`results/e8_explore/videos/` (figures to be updated with E9 where relevant).

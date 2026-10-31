@@ -1,0 +1,36 @@
+# Experiment 9: IPPO (E6) trained to 400 iterations instead of 200.
+# Identical to configs/ippo_warm_scene1_a5-10_ll2_stopcost_200.yaml except
+# name and train.iterations; training is deterministic, so iterations 1-200 must reproduce E6's networks
+# bit for bit (checked before anything else). Plan and pre-set outcomes: EXPERIMENTS.md, E9.
+# Question: does the arm keep improving after iteration 200, and does the MAPPO - IPPO gap change?
+name: ippo_warm_scene1_a5-10_ll2_stopcost_400
+critic: local
+env:
+  source: pool
+  pool: pools/scene1_a5-10_ll2
+  disruption: none
+reward:
+  scale: 0.01
+  progress: 0.0
+  exempt_chosen_stops: true
+  chosen_stop_cost: 25.0
+  waiting_cost: 0.5
+ppo:
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  minibatch_size: 1024
+  lr: 0.0001
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  value_norm: true
+train:
+  iterations: 400
+  episodes_per_iteration: 32
+  workers: 10
+  init_checkpoint: third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt
+  save_every: 10
+  eval_episodes: 16
+  eval_mode: sampled
