@@ -901,11 +901,17 @@ What the still-driving and stuck trains look like (medians unless stated):
   lead into a loop from which the destination cannot be reached in the current direction; the tree observation may
   not make the right turn clear enough. Why MAPPO gets lost less is open (its critic sees all trains, but the actor
   is the same network shape as IPPO's). "Unreachable" is flatland's distance map; not yet checked by eye.
-- **Video candidates** (printed by the script): MAPPO success = MAPPO s1, scenario 08, evaluation seed 2 (10/10
-  arrived); IPPO stuck = IPPO s0, scenario 78, seed 1 (9 stuck, 1/10 arrived). Given the findings, a lost IPPO
-  train is the more representative failure to show.
+- **Videos (for the slides; illustrations, not evidence):** `python scripts/make_videos.py` (~1 min) →
+  `results/e8_explore/videos/`. T1 scenario 08, evaluation seed 2 (same map and timetable): MAPPO s1 (10/10
+  arrived), IPPO s1 (8/10; trains 2 and 5 lost) and the checkpoint (5/10; 5 stuck). All three replays reproduce the
+  stored E8 results. One mp4 per policy, `side_by_side.mp4` (2 × 2 with a legend, 29 s) and `lost_trails.png`
+  (IPPO's last frame with the lost trains' full trails, for the report). Overlays: each train a dot in its own colour,
+  its destination a square; red ring + trail = ends lost, orange ring = ends stuck. **By eye:** IPPO's two lost
+  trains cross the map, then circle the same small loop near the centre until the time limit, which agrees with the
+  loop / unreachable numbers above; the checkpoint's stuck trains stand in a jam without trails. Caveat (also on the
+  legend): this scenario was picked because MAPPO s1 solves it, but train 5 also gets lost under IPPO s0, IPPO s2
+  and MAPPO s0, and MAPPO s0/s2 have 3–4 stuck trains here.
 
 ### Next (paused 1 Nov)
 
-Videos for the slides (a MAPPO success, an IPPO lost train; also a check by eye of the loop reading), then report
-figures and slides (P3: slides by 8 Nov).
+Report figures and slides (P3: slides by 8 Nov), from the committed CSVs and the videos above.

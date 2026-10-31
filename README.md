@@ -351,6 +351,7 @@ results/e8_test/               ✅ E8: IPPO vs MAPPO vs baselines on the test se
 scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysis
 scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
 scripts/explore_failures.py   ✅ exploratory: where non-arriving trains end up (never left / stuck / lost) → results/e8_explore/; tests/test_explore_failures.py
+scripts/make_videos.py        ✅ slide videos: one T1 scenario, MAPPO / IPPO / checkpoint (lost and stuck trains marked) → results/e8_explore/videos/
 src/flatmarl/obs.py + models.CentralCritic   ✅ MAPPO (critic: central); 5 tests in test_training.py
 ```
 
