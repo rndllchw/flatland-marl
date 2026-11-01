@@ -961,9 +961,37 @@ plan below was written and committed before training started; anything added lat
   python scripts/train.py --config configs/mappo_warm_scene1_a5-10_ll2_stopcost_400.yaml --seed S --out results/e9_mappo_training/seed_S
   ```
   then the bit-identity check, validation into `results/e9_{ippo,mappo}_val_sampled`, test into `results/e9_test`,
-  and an analysis script for the outcomes above (to be written before the test evaluation runs).
+  and an analysis script for the outcomes above (to be written before the test evaluation runs). As run:
+  ```bash
+  python scripts/check_e9_identity.py                       # stop rule; exits 1 if any network differs
+  python scripts/evaluate.py --scenarios pools/val_scene1_a5-10_ll2 --disruption none --seeds 0 1 2 \
+      --policies actor-sampled:results/e9_ippo_training/seed_0/actor_210.pt ... actor-sampled:results/e9_ippo_training/seed_2/actor_400.pt \
+      --out results/e9_ippo_val_sampled --workers 10        # 60 snapshots (210-400 x 3 seeds); same for mappo
+  python scripts/val_analysis.py results/e9_ippo_val_sampled --write-summary \
+      --ref checkpoint_sampled=results/val_sampled_baselines:actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/checkpoint.pt \
+            heuristic=results/e3_val_baselines:heuristic \
+      --ref-final E6_IPPO_200=results/e6_val_sampled E9_MAPPO_400=results/e9_mappo_val_sampled   # mappo: E7_MAPPO_200, E9_IPPO_400
+  zsh scripts/run_e9.sh                                     # test: iteration-400 actors, into results/e9_test
+  python scripts/e9_analysis.py                             # all outcomes; tests/test_e9_analysis.py
+  ```
+  No deviations from the plan so far.
+- **Progress (1 Nov):**
+  - **Training** 03:24–06:30, 3.1 h (IPPO ~29 min, MAPPO ~32.5 min per seed). All 6 runs reached iteration 400.
+  - **Stop rule passed:** every saved network at iterations 10–200 is bit-identical to E6/E7 (IPPO 20/20 actors per
+    seed; MAPPO 20/20 actors + 20/20 critics per seed, all 3 seeds).
+  - **Validation** 07:40–08:14 (18,000 episodes). Outcome 6, mean arrivals of iterations 151–200 → 351–400:
+    IPPO 64.6% → 67.9% (+3.3; seeds +4.3/+3.2/+2.4), MAPPO 68.3% → 70.4% (+2.1; +0.7/+1.3/+4.3). Validation slopes
+    over 210–400 per 100 iterations: IPPO +1.5/+0.3/+1.3, MAPPO −0.5/−0.1/+1.6. At the final snapshot MAPPO − IPPO is
+    +2.1 points [+0, +4] (6.1 at iteration 200). Validation is not an E9 outcome besides 6; outcomes 1–5 and 7 come
+    from the test sets.
+  - **Analysis written before any test episode:** `scripts/e9_analysis.py` (reuses `e8_analysis.py`; stops if a
+    folder holds another iteration or the scenarios / seeds differ between 200 and 400) and `scripts/run_e9.sh`.
+    `tests/test_e9_analysis.py`, 7 tests on E8's results only: E8 against itself gives exactly 0 for every
+    400 − 200 difference and the gap change and reproduces E8's summary (+5.4 on T1 none); with one arm standing in
+    for both, the signs come out as expected; 8 of 8 deliberate bugs caught.
 
 ### Next (paused 1 Nov)
 
-E9 (above): commit the plan and configs, then train. Slides (P3: by Sun 8 Nov) after E9, from `results/figures/` and
+E9 (above): commit the analysis, then run the test evaluation (`zsh scripts/run_e9.sh`, ~25 min) and
+`scripts/e9_analysis.py`. Slides (P3: by Sun 8 Nov) after E9, from `results/figures/` and
 `results/e8_explore/videos/` (figures to be updated with E9 where relevant).
