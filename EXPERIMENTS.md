@@ -1217,6 +1217,8 @@ them does not touch the sampling generator). **All 21,084 replayed trains match 
   is nearly deterministic PPO no longer samples the alternative. A higher entropy bonus, an entropy floor on the
   departure decision, or choosing the network by validation instead of a fixed iteration would test this.
 - **Limits:** one evaluation seed, D1 none only, 3 runs per arm; descriptive, no CIs.
+- **Figure** (`scripts/make_figures.py --only dense_collapse`): per-seed validation curves of the dense runs (a, b)
+  and the departure-wait shares at iterations 200 and 400 (c, d); the other figures are unchanged (byte-identical).
 
 ### Next (paused 1 Nov)
 

@@ -11,6 +11,10 @@ Writes results/figures/<name>.pdf (report) and <name>.png (slides, 200 dpi):
                    e9_{ippo,mappo}_val_sampled, val_sampled_baselines, e3_val_baselines)
     budget_effect  E9 (secondary): test arrivals of each arm at iteration 200 (E8) and 400, and MAPPO - IPPO at
                    both with 95% CI, per test setting (results/e9_test/summary_arrivals.csv)
+    dense_collapse E10 (secondary) + E10 exploratory: (a, b) validation arrivals of each dense-trained run (15-20
+                   trains), per seed; (c, d) how long trains wait to depart, D1 no disruptions, evaluation seed 0, at
+                   iterations 200 and 400 (results/e10_{ippo,mappo}_val_sampled, e10_val_baselines,
+                   results/e10_explore/collapse_trains.csv)
     reward_story   E3 (official reward) vs E5 (chosen-STOP cost 25 + waiting cost 0.5, value normalisation) over
                    100 iterations: (a) arrivals, (b) official score, validation, sampled (results/{e3,e5}_val_sampled)
     greedy_vs_sampled  per network: (a) T1 test arrivals with sampled vs top-action (greedy) play; (b) mean P(go)
@@ -48,6 +52,7 @@ OUT = ROOT / "results" / "figures"
 E8 = ROOT / "results" / "e8_test"
 E9 = ROOT / "results" / "e9_test"
 EXPLORE = ROOT / "results" / "e8_explore"
+E10_EXPLORE = ROOT / "results" / "e10_explore"
 
 COLOUR = {"MAPPO": "#2a78d6", "IPPO": "#eb6834", "heuristic": "#1baf7a", "checkpoint": "#898781"}
 INK, INK_2, MUTED, GRID, AXIS = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
@@ -339,6 +344,88 @@ def budget_effect():
     return fig
 
 
+def spaced(values, gap):
+    """Label positions for any number of values: in order, at least `gap` apart, centred on the originals."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    placed = []
+    for i in order:
+        placed.append(max(values[i], placed[-1] + gap) if placed else values[i])
+    shift = (sum(values) - sum(placed)) / len(values)
+    out = [0.0] * len(values)
+    for i, y in zip(order, placed):
+        out[i] = y + shift
+    return out
+
+
+WAIT_BINS = [("0–5", 5, "#e0dcf7", INK), ("6–100", 100, "#b3a9ee", INK), ("101–300", 300, "#7d6ddf", "white"),
+             ("> 300 or never", None, "#3f2f9e", "white")]  # steps waited after the earliest departure
+
+
+def dense_collapse():
+    """E10: per run, validation arrivals (top) and how long its trains wait to depart at iterations 200 and 400
+    (bottom), one column per arm. No arm mean: it would average collapsed and healthy runs."""
+    start = val_baseline("e10_val_baselines", "actor-sampled:third_party/ecml2026-starterkit/reinforcement_learning/"
+                                              "checkpoint.pt")
+    heuristic = val_baseline("e10_val_baselines", "heuristic")
+    trains = pd.read_csv(E10_EXPLORE / "collapse_trains.csv")
+    fig, axes = plt.subplots(2, 2, figsize=(WIDTH, 4.6), gridspec_kw={"height_ratios": [1.25, 1], "hspace": 0.55,
+                                                                       "wspace": 0.38})
+    for col, name in enumerate(("IPPO", "MAPPO")):
+        ax = axes[0, col]
+        v = pd.read_csv(ROOT / "results" / f"e10_{name.lower()}_val_sampled" / "summary_by_snapshot.csv")
+        ends = {}
+        for seed, g in v.sort_values("iteration").groupby("seed"):
+            ax.plot([0, *g.iteration], [start * 100, *g.completion_rate * 100], color=COLOUR[name], lw=1.3)
+            ends[seed] = g.completion_rate.iloc[-1] * 100
+        for seed, y in zip(ends, spaced(list(ends.values()), gap=4.2)):
+            ax.text(406, y, f"seed {seed} {ends[seed]:.0f}%", va="center", fontsize=8, color=INK)
+        ax.axhline(heuristic * 100, color=COLOUR["heuristic"], lw=1)
+        ax.axvline(200, color=MUTED, lw=0.8, ls=":", zorder=1)
+        ax.plot(0, start * 100, clip_on=False, **marker("checkpoint"))
+        ax.set_xlim(0, 400)
+        ax.set_ylim(25, 70)
+        ax.set_xticks(range(0, 401, 100))
+        ax.set_xlabel("training iteration")
+        ax.set_title(f"({'ab'[col]}) {name}: validation arrivals per seed", loc="left", fontsize=9, color=INK_2)
+        if col == 0:
+            ax.set_ylabel("trains arrived (%)")
+            ax.text(212, heuristic * 100 + 1.5, f"heuristic {heuristic:.0%}", fontsize=7.5, color=INK_2)
+            ax.annotate(f"start: checkpoint {start:.0%}", (0, start * 100), xytext=(8, -9),
+                        textcoords="offset points", fontsize=7.5, color=INK_2)
+        else:
+            ax.tick_params(labelleft=False)
+
+        ax = axes[1, col]
+        rows = [(seed, it) for seed in range(3) for it in (200, 400)]
+        y = [8 - 3 * seed - (it == 400) for seed, it in rows]  # each seed's two bars together, a gap between seeds
+        for yi, (seed, it) in zip(y, rows):
+            w = trains[(trains.label == f"{name} s{seed}") & (trains.iteration == it)].departure_wait
+            left = 0
+            for i, (_, upper, colour, text) in enumerate(WAIT_BINS):
+                lower = -1 if i == 0 else WAIT_BINS[i - 1][1]
+                inside = (w > lower) & (w <= upper) if upper is not None else (w > lower) | w.isna()
+                width = inside.mean() * 100
+                ax.barh(yi, width, left=left, height=0.8, color=colour, edgecolor="white", linewidth=1.2)
+                if width >= 9:
+                    ax.text(left + 1.5, yi, f"{width:.0f}%", va="center", fontsize=7.5, color=text)
+                left += width
+        ax.set_yticks(y, [f"seed {seed}, it {it}" for seed, it in rows])
+        if col == 1:
+            ax.tick_params(labelleft=False)
+        ax.set_xlim(0, 100)
+        ax.set_xticks([0, 25, 50, 75, 100])
+        ax.set_xlabel("share of trains (%)")
+        ax.grid(axis="y", visible=False)
+        ax.spines["left"].set_visible(False)
+        ax.set_title(f"({'cd'[col]}) {name}: steps waited before departing", loc="left", fontsize=9, color=INK_2)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=c) for _, _, c, _ in WAIT_BINS]
+    fig.legend(handles, [f"{label} steps" if i < 3 else label for i, (label, *_) in enumerate(WAIT_BINS)], ncol=4,
+               loc="upper center", bbox_to_anchor=(0.5, 0.0), handlelength=1.0, handletextpad=0.4, columnspacing=1.6,
+               fontsize=8.5, title="waited after its earliest departure (D1, no disruptions, evaluation seed 0)",
+               title_fontsize=8)
+    return fig
+
+
 # metric -> (row label, scale, decimals); lateness is in steps, among arrived trains only
 METRICS = {"completion_rate": ("Trains arrived (%)", 100, 1), "score": ("Official score", 1, 3),
            "mean_lateness": ("Mean lateness (steps)", 1, 1), "p90_lateness": ("p90 lateness (steps)", 1, 1),
@@ -393,7 +480,7 @@ def metrics_all_settings():
 
 
 FIGURES = {"test_results": test_results, "failures": failures, "validation_curves": validation_curves,
-           "budget_effect": budget_effect, "reward_story": reward_story, "greedy_vs_sampled": greedy_vs_sampled}
+           "budget_effect": budget_effect, "dense_collapse": dense_collapse, "reward_story": reward_story, "greedy_vs_sampled": greedy_vs_sampled}
 TABLES = {"fairness_table": fairness_table, "metrics_all_settings": metrics_all_settings}
 
 
