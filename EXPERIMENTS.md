@@ -1116,8 +1116,110 @@ never seen before, so the test-set reuse of E9 does not carry over. Plan written
   MAPPO's levels read at iterations 100 and 200 only, because validation here is every 20 iterations (no 150), and
   the 3-snapshot smoothing spans 60 iterations instead of 30.
 
+- **Run** (commits: plan a434fe5, analysis c093f5f, results 9e41d47): training 13:52–19:33 (6 runs, 53–62 min
+  each, all to iteration 400); validation 19:33–20:43 (`results/e10_val_baselines`, `results/e10_{ippo,mappo}_val_sampled`,
+  20 snapshots × 3 seeds × 50 scenarios × 3 evaluation seeds per arm); early-stop rule: **continue**; test
+  `scripts/run_e10.sh` 20:43–21:31 (11,400 episodes); `python scripts/e10_analysis.py`. No deviations from the
+  commands above.
+- **Validation** (`results/e10_test/summary_validation.csv`; dense validation pool, sampled; checkpoint 29.6%,
+  heuristic 60.6%):
+
+  | Run | peak (iteration) | iteration 200 | iteration 400 |
+  |---|---|---|---|
+  | IPPO seeds 0 / 1 / 2 | 60.0% (260) / 58.6% (120) / 62.6% (120) | 56.7 / 39.8 / 49.8% | 38.5 / 42.6 / 38.4% |
+  | MAPPO seeds 0 / 1 / 2 | 57.6% (220) / 60.6% (320) / 59.1% (160) | 55.4 / 56.9 / 58.4% | 38.3 / **58.5** / 36.8% |
+  | arm mean IPPO / MAPPO | | 48.8 / 56.9% | 39.8 / 44.5% |
+
+  **5 of 6 runs collapse**: validation rises to ~58–63% and then falls to ~37–43% within 20–40 iterations, with
+  the training entropy falling from ~0.6 to ~0.2–0.3 at the same time (training arrivals fall too, e.g. IPPO s0
+  60.5% → 39.8%, so it is not a validation artefact). IPPO collapses at ~200, ~200, ~340; MAPPO at ~240, ~260 and
+  never (seed 1, entropy 0.63 → 0.65). No run recovers. Early-stop rule (both arms below the checkpoint at 200):
+  not triggered (48.8% and 56.9% vs 29.6%); the rule was not built to catch a collapse above the checkpoint.
+- **Results** (`results/e10_test/summary_{arrivals,metrics,transfer}.csv`; D1, arrivals, sampled unless said):
+
+  | D1, no disruptions, sampled | iteration 200 | iteration 400 | 400 − 200 [95% CI] |
+  |---|---|---|---|
+  | IPPO | 51.5% (seeds 60.8/41.8/51.9) | 41.8% (39.5/45.9/40.1) | −9.7 [−11.1, −8.4] |
+  | MAPPO | 60.3% (58.5/60.2/62.2) | 45.8% (38.6/**61.5**/37.3) | −14.5 [−16.2, −12.8] |
+  | MAPPO − IPPO | +8.8 [+7.4, +10.1] | **+4.0 [+3.1, +4.9]** | |
+
+  - **E10 primary:** MAPPO − IPPO at 400 = **+4.0 points [+3.1, +4.9]**; MAPPO ahead in 83 scenarios, IPPO in 13,
+    4 tied (checked by hand from `episodes.csv`: +0.0402 over 100 scenarios).
+  - **Pre-registered reading:** CI excludes 0 with MAPPO ahead → "the central critic helps more in dense traffic".
+  - **But the gap is one training seed.** MAPPO seed 1 (the run that did not collapse) scores 61.5%; MAPPO seeds 0 and
+    2 score 38.6% and 37.3%, below every IPPO seed (39.5/45.9/40.1%). Without seed 1 MAPPO would be behind. The CI
+    covers scenario variation, not training seeds, so it cannot show this. **Our reading:** 1 of 3 MAPPO runs
+    avoided the collapse and 0 of 3 IPPO runs did; with 3 seeds per arm that is no evidence that MAPPO is more stable
+    or better in dense traffic. Both methods are unstable when trained on 15–20 trains at this budget.
+  - **(1) At 200:** +8.8 [+7.4, +10.1] (MAPPO ahead in 90 scenarios), but IPPO seeds 1 and 2 had already collapsed
+    (see below), so this also measures when each run collapsed.
+  - **(2) 400 − 200:** both arms got worse: IPPO −9.7 [−11.1, −8.4], MAPPO −14.5 [−16.2, −12.8].
+  - **(3) Baselines (D1 none):** heuristic 58.1%: IPPO −16.3 [−21.2, −11.3], MAPPO −12.2 [−17.2, −7.3]; checkpoint
+    (sampled) 32.0%: IPPO +9.8 [+7.6, +12.0], MAPPO +13.8 [+11.8, +15.9].
+  - **(4) Breakdowns:** +4.7 [+4.0, +5.4] (IPPO 40.6%, MAPPO 45.3%); same seed pattern (MAPPO 38.2/60.3/37.3%).
+  - **(5) Metrics at 400:** score equal (MAPPO − IPPO −0.003 [−0.011, +0.005]), Gini equal (+0.003 [−0.004,
+    +0.009]); p90 lateness lower for MAPPO (4.0 vs 5.9 steps, −1.9 [−3.3, −0.6]); halts +0.9 [+0.6, +1.2] per game.
+    Lateness fell in both arms from 200 to 400 (p90 IPPO 17.7 → 5.9, MAPPO 6.5 → 4.0): fewer trains arrive, and
+    those that do are on time (see the collapse analysis).
+  - **(6) Greedy (seed 0):** both ~31% (IPPO 31.6%, MAPPO 31.0%; −0.6 [−1.1, −0.1]); greedy checkpoint 29.9%.
+  - **(7) Exploratory, T1 none:** the dense-trained arms are far worse than E9's arms (trained on 5–10 trains) at
+    400: IPPO 44.2% vs 66.8% (−22.6 [−25.8, −19.3]), MAPPO 51.2% vs 67.7% (−16.5 [−19.4, −13.5]); dense MAPPO −
+    IPPO +6.9 [+5.7, +8.1], again carried by seed 1.
+  - **(8) Exploratory, learning speed:** unlike E9, IPPO is ahead early (validation 59.0% vs 54.1% at iteration
+    120; IPPO reaches MAPPO's smoothed iteration-200 level, 56.8%, at iteration 120). The 5–10-train thresholds
+    (60 / 65 / 67.5%) are barely reached (60% by one seed per arm). Mean validation, iterations 20–200: IPPO 52.5%,
+    MAPPO 51.6%; 220–400: 42.7% vs 47.3% (`results/e10_test/learning_speed_*.csv`).
+  - **Interpretation:** E10 does not support "the central critic helps more in dense traffic", although the
+    pre-registered rule reads that way: the iteration-400 comparison is decided by which runs collapsed. It adds a
+    limitation instead: training directly on 15–20 trains is unstable for both methods (5 of 6 runs collapse
+    between iterations ~200 and ~340), and the networks trained on 5–10 trains do better on dense traffic (E9 on
+    T2: IPPO 57.9%, MAPPO 58.6%) than the dense-trained ones on D1 (41.8%, 45.8%; different test sets of the same
+    kind). E8 remains the main result.
+
+### E10 exploratory: what the collapse is (1 Nov; decided after seeing the results, not pre-registered)
+
+`scripts/explore_collapse.py` replays D1, no disruptions, evaluation seed 0, with every E10 run at iterations 200
+and 400 (1,200 episodes), recording each step's masked action probabilities next to the drawn action (computing
+them does not touch the sampling generator). **All 21,084 replayed trains match the stored E10 results.** Output:
+`results/e10_explore/collapse_{trains,summary}.csv`. Failure buckets as in E8 exploratory 2 (still ≥ 50 steps);
+"lost" = did not arrive but drove at least its shortest route (overlaps the buckets). Shares of all trains.
+
+| Run, iteration | arrived | median wait to depart | held > 300 steps | entropy, departure | entropy, on-map choice | still driving at end | lost |
+|---|---|---|---|---|---|---|---|
+| IPPO s0, 200 | 62.7% | 0 | 0% | 0.66 | 0.63 | 23.6% | 24.9% |
+| IPPO s0, 400 | 39.6% | 176 | 40% | 0.19 | 0.57 | 50.7% | 6.5% |
+| IPPO s1, 200 | 43.7% | 75 | 18% | 0.24 | 0.61 | 45.9% | 17.1% |
+| IPPO s1, 400 | 46.5% | 19 | 36% | 0.24 | 0.58 | 44.1% | 7.1% |
+| IPPO s2, 200 | 53.4% | 44 | 0% | 0.22 | 0.57 | 29.5% | 24.6% |
+| IPPO s2, 400 | 40.5% | 264 | 46% | 0.22 | 0.53 | 35.8% | 3.2% |
+| MAPPO s0, 200 | 57.5% | 3 | 0% | 0.43 | 0.64 | 29.1% | 30.1% |
+| MAPPO s0, 400 | 38.9% | 321 | 53% | 0.19 | 0.57 | 44.9% | 2.8% |
+| MAPPO s1, 200 | 60.4% | 0 | 0% | 0.61 | 0.64 | 24.7% | 25.8% |
+| **MAPPO s1, 400** | **60.7%** | **2** | **0%** | **0.40** | **0.65** | 27.2% | 28.2% |
+| MAPPO s2, 200 | 61.2% | 2 | 0% | 0.48 | 0.64 | 27.2% | 28.2% |
+| MAPPO s2, 400 | 38.0% | 311 | 52% | 0.15 | 0.51 | 40.4% | 2.0% |
+
+- **The collapse is in the departure decision.** Collapsed policies send about a third of the trains at once and
+  hold 36–53% at their start for more than 300 steps (bimodal); departure entropy falls to 0.15–0.24 nats, while
+  entropy at on-map choices barely moves (0.63 → 0.51–0.58). Held trains then run out of time: "still driving at
+  the end" rises to 36–51% and "lost" falls to 2–7%. The few that arrive are on time, hence the lower lateness.
+  STOP use on the map also rises in three collapsed runs (IPPO s2, MAPPO s0, s2: ~5% → 13–15% of on-map steps).
+- **Not reward hacking.** The collapsed policies are worse on what they were trained on: the official "target not
+  reached" penalty per train grows from about −65 to −115 (e.g. MAPPO s2 −62.5 → −118.8), while the late-arrival
+  penalty shrinks by only 1–4; the waiting cost (0.5 per step) is charged whether a train is held or driving, so
+  holding saves nothing there; the official score falls (training log, 10-iteration means, e.g. IPPO s1 0.72 at
+  iteration 160 → 0.61–0.66 after 200).
+- **No warning in the training log:** KL (~0.003), clip fraction (~0.015) and value loss (~0.045) are normal up to
+  the collapse; then departure entropy and arrivals fall together within 20–40 iterations, and afterwards updates
+  shrink (KL ~0.0012, clip ~0.009), so the policy stays there.
+- **Hypothesis (not tested):** in 15–20-train traffic a departing train often gets blocked and charged 250 per
+  forced halt; with per-train rewards, holding back can look better to each train, and once the departure decision
+  is nearly deterministic PPO no longer samples the alternative. A higher entropy bonus, an entropy floor on the
+  departure decision, or choosing the network by validation instead of a fixed iteration would test this.
+- **Limits:** one evaluation seed, D1 none only, 3 runs per arm; descriptive, no CIs.
+
 ### Next (paused 1 Nov)
 
-E9 done and in the figures (above). E10 training running (started 1 Nov 13:52, ~19:40 expected), then validation,
-the early-stop check, the test run and the write-up. Slides (P3: by Sun 8 Nov) from `results/figures/` and
-`results/e8_explore/videos/`.
+E9 done and in the figures; E10 done and written up (above; 5 of 6 dense-trained runs collapse, so E10 becomes a
+limitation, not a dense-traffic win). Next: decide E10 figures, then slides (P3: by Sun 8 Nov) from
+`results/figures/` and `results/e8_explore/videos/`.

@@ -353,6 +353,12 @@ results/e9_{ippo,mappo}_training/  ✅ E9: both arms to 400 iterations (scripts/
 results/e9_{ippo,mappo}_val_sampled/ ✅ E9 validation of snapshots 210–400 (+ summary_by_snapshot.csv)
 results/e9_test/               ✅ E9: iteration-400 actors on the test sets (+ summary_arrivals/metrics/validation.csv)
 scripts/run_e9.sh, scripts/e9_analysis.py   ✅ E9 evaluation driver and analysis; tests/test_e9_analysis.py
+results/e10_{ippo,mappo}_training/ ✅ E10: both arms trained on 15–20 trains (pools/scene1_a15-20_ll2), 400 iterations
+results/e10_{ippo,mappo}_val_sampled/, results/e10_val_baselines/ ✅ E10 validation (dense pool), every 20 iterations
+results/e10_test/              ✅ E10: test set D1 (eval_sets/test/d1_scene1_a15-20_ll2) + T1 (+ summary_*.csv, learning_speed_*.csv)
+scripts/run_e10.sh, scripts/e10_analysis.py ✅ E10 evaluation driver and analysis; tests/test_e10_analysis.py
+scripts/explore_learning_speed.py ✅ exploratory: how much sooner MAPPO reaches a validation level → results/e9_explore/
+scripts/explore_collapse.py   ✅ exploratory: what changes when an E10 run collapses (departure holding) → results/e10_explore/
 scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
 scripts/explore_failures.py   ✅ exploratory: where non-arriving trains end up (never left / stuck / lost) → results/e8_explore/; tests/test_explore_failures.py
 scripts/make_videos.py        ✅ slide videos: one T1 scenario, MAPPO / IPPO / checkpoint (lost and stuck trains marked) → results/e8_explore/videos/
@@ -448,6 +454,16 @@ IPPO collapses (23–26%) while MAPPO keeps 47–73%. Tables: `EXPERIMENTS.md` (
 narrows by 4.5 points [2.9, 6.1]. Same in all six settings. So MAPPO learns faster rather than reaching a higher
 level; with greedy execution it is still far ahead (69.8% vs 50.4%). Tables: `EXPERIMENTS.md` (E9),
 `results/e9_test/summary_*.csv`.
+
+**Training in dense traffic (E10, 1 Nov; secondary, planned after E9).** Both arms retrained for 400 iterations on
+15–20 trains and tested on a new test set (D1, 100 scenarios). Pre-registered primary (D1, no disruptions, sampled):
+**MAPPO 45.8% vs IPPO 41.8%, +4.0 [+3.1, +4.9]**. But **5 of the 6 runs collapse** during training (validation
+~60% → ~38–43% within 20–40 iterations), and the gap is the one MAPPO run that did not (61.5%; the other two MAPPO
+seeds score 38.6% and 37.3%, below every IPPO seed). So E10 is no evidence that MAPPO does better in dense traffic;
+it shows that training directly on 15–20 trains is unstable for both methods. The collapse (exploratory) is in the
+departure decision: collapsed policies hold 36–53% of trains at their start for more than 300 steps, which then
+run out of time; they are worse on their own training reward too, so it is not reward hacking. Tables:
+`EXPERIMENTS.md` (E10), `results/e10_test/summary_*.csv`, `results/e10_explore/collapse_summary.csv`.
 
 **How trains fail (exploratory, 1 Nov; T1, no disruptions, sampled).** The trained policies rarely jam; they get
 lost: 32.5% of IPPO's and 25.3% of MAPPO's trains drive the whole episode without arriving, covering 1.6× their
