@@ -349,6 +349,10 @@ results/e7_training/           ✅ E7 (MAPPO arm) actors + critics every 10 iter
 results/e7_val_sampled/        ✅ E7 validation of all 60 snapshots, sampled x 3 seeds (+ summary_by_snapshot.csv)
 results/e8_test/               ✅ E8: IPPO vs MAPPO vs baselines on the test sets (+ summary_arrivals.csv, summary_metrics.csv)
 scripts/run_e8.sh, scripts/e8_analysis.py   ✅ E8 evaluation driver and analysis
+results/e9_{ippo,mappo}_training/  ✅ E9: both arms to 400 iterations (scripts/check_e9_identity.py: 10–200 identical to E6/E7)
+results/e9_{ippo,mappo}_val_sampled/ ✅ E9 validation of snapshots 210–400 (+ summary_by_snapshot.csv)
+results/e9_test/               ✅ E9: iteration-400 actors on the test sets (+ summary_arrivals/metrics/validation.csv)
+scripts/run_e9.sh, scripts/e9_analysis.py   ✅ E9 evaluation driver and analysis; tests/test_e9_analysis.py
 scripts/explore_departures.py ✅ exploratory: departure probabilities and greedy waits → results/e8_explore/
 scripts/explore_failures.py   ✅ exploratory: where non-arriving trains end up (never left / stuck / lost) → results/e8_explore/; tests/test_explore_failures.py
 scripts/make_videos.py        ✅ slide videos: one T1 scenario, MAPPO / IPPO / checkpoint (lost and stuck trains marked) → results/e8_explore/videos/
@@ -437,6 +441,13 @@ arrived, +5.4% [+4.0, +6.8]**, every MAPPO seed above every IPPO seed. MAPPO is 
 +7.2%), with less lateness and the same score and fairness. In dense traffic (T2) MAPPO matches the heuristic on
 arrivals (−2.5% [−9.3, +4.5]); on T1/T3 the heuristic leads by 13–17 points. With greedy (top-action) execution
 IPPO collapses (23–26%) while MAPPO keeps 47–73%. Tables: `EXPERIMENTS.md` (E8), `results/e8_test/summary_*.csv`.
+
+**Twice the training budget (E9, 1 Nov; secondary, planned after E8).** Both arms retrained to 400 iterations
+(iterations 1–200 bit-identical to E6/E7). On T1 (no disruptions, sampled) IPPO rises 61.5% → 66.8% (+5.3 [+3.8,
++6.8]) while MAPPO stays at 66.9% → 67.7% (+0.8 [−0.4, +2.1]): **MAPPO − IPPO at 400 = +0.9 [−0.3, +2.1]**, the gap
+narrows by 4.5 points [2.9, 6.1]. Same in all six settings. So MAPPO learns faster rather than reaching a higher
+level; with greedy execution it is still far ahead (69.8% vs 50.4%). Tables: `EXPERIMENTS.md` (E9),
+`results/e9_test/summary_*.csv`.
 
 **How trains fail (exploratory, 1 Nov; T1, no disruptions, sampled).** The trained policies rarely jam; they get
 lost: 32.5% of IPPO's and 25.3% of MAPPO's trains drive the whole episode without arriving, covering 1.6× their

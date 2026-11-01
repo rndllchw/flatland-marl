@@ -988,10 +988,43 @@ plan below was written and committed before training started; anything added lat
     folder holds another iteration or the scenarios / seeds differ between 200 and 400) and `scripts/run_e9.sh`.
     `tests/test_e9_analysis.py`, 7 tests on E8's results only: E8 against itself gives exactly 0 for every
     400 − 200 difference and the gap change and reproduces E8's summary (+5.4 on T1 none); with one arm standing in
-    for both, the signs come out as expected; 8 of 8 deliberate bugs caught.
+    for both, the signs come out as expected; 8 of 8 deliberate bugs caught. Committed (`e0152b7`) before the test run.
+  - **Test** 10:38–10:56 (7,800 episodes: 14 folders in `results/e9_test/`, row counts as planned), then
+    `scripts/e9_analysis.py`. Primary and gap change re-computed by hand from `episodes.csv`: identical. No deviations.
+- **Results** (`results/e9_test/summary_{arrivals,metrics,validation}.csv`; arrivals, T1 = no disruptions unless said):
+
+  | T1, no disruptions, sampled | iteration 200 (E8) | iteration 400 (E9) | 400 − 200 [95% CI] |
+  |---|---|---|---|
+  | IPPO | 61.5% (seeds 62.9/59.3/62.2) | 66.8% (66.5/64.6/69.3) | **+5.3 [+3.8, +6.8]** |
+  | MAPPO | 66.9% (66.1/69.9/64.6) | 67.7% (66.8/68.1/68.1) | +0.8 [−0.4, +2.1] |
+  | MAPPO − IPPO | +5.4 [+4.0, +6.8] | **+0.9 [−0.3, +2.1]** | gap change **−4.5 [−6.1, −2.9]** |
+
+  - **E9 primary:** MAPPO − IPPO at 400 = **+0.9 points [−0.3, +2.1]**: no difference detected. MAPPO ahead in 49
+    scenarios, IPPO in 37, 14 tied; the seeds now overlap (at 200 every MAPPO seed was above every IPPO seed).
+  - **Pre-registered reading:** "MAPPO keeps improving": **no** (outcome 1's CI includes 0). The gap **narrowed**
+    (outcome 2's CI excludes 0). IPPO is the arm that improved.
+  - **Outcome 4, all six settings, same pattern:** IPPO 400 − 200 = +3.4 to +5.7 (every CI above 0); MAPPO −1.3 to
+    +1.3 (every CI includes 0); gap change −3.2 to −6.9 (every CI below 0); MAPPO − IPPO at 400 = −0.1 to +0.9
+    (every CI includes 0).
+  - **Outcome 3, vs heuristic:** both arms still well below it on T1 (IPPO −14.2 [−19.0, −9.2], MAPPO −13.3
+    [−18.3, −8.1]) and T3 (−18 to −19 points); on T2 both CIs include 0, as in E8.
+  - **Outcome 5 (T1):** score and Gini unchanged and equal between arms (score MAPPO − IPPO +0.003 [−0.007,
+    +0.012]; Gini +0.007 [−0.007, +0.021]). Lateness fell in both arms, most for IPPO (p90 4.9 → 2.0 steps, −2.9
+    [−4.1, −1.8]; MAPPO 3.1 → 2.4, −0.8 [−1.4, −0.1]); E8's lateness advantage for MAPPO is gone (p90 MAPPO − IPPO
+    +0.3 [−0.3, +1.0]).
+  - **Outcome 6 (validation):** IPPO +3.3 points, MAPPO +2.1 (above): same direction as the test (IPPO gains more).
+  - **Outcome 7, greedy (T1, seed 0):** MAPPO still far ahead: 69.8% vs 50.4%, +19.5 [+17.0, +21.9]. IPPO improved
+    (23.8% → 50.4%) but one seed still collapses under greedy play (seeds 61.6/63.8/25.8%; MAPPO 71.9/64.7/73.0%).
+  - **Interpretation:** with the same 200 × 32 games, MAPPO reaches ~67% and IPPO ~62%; with twice the games IPPO
+    reaches the same level and MAPPO stays there. Within 400 iterations the central critic buys **faster learning, not
+    a higher ceiling**, plus a policy that still works with top-action play. E8 remains the main (pre-registered)
+    result; E9 is reported next to it as "with twice the training budget". Limits: post-hoc, 3 training seeds, one
+    budget doubling; the failure analysis (E8 exploratory 2) and videos are at iteration 200 and were not redone.
+- **Figures** (`scripts/make_figures.py`): `validation_curves` now runs to 400 iterations (E6/E7 + E9 validation,
+  dotted lines at the networks E8 and E9 tested); new `budget_effect` (each arm 200 → 400 per test setting, MAPPO −
+  IPPO at both, gap change). `test_results`, `greedy_vs_sampled`, `failures` and the tables stay at iteration 200.
 
 ### Next (paused 1 Nov)
 
-E9 (above): commit the analysis, then run the test evaluation (`zsh scripts/run_e9.sh`, ~25 min) and
-`scripts/e9_analysis.py`. Slides (P3: by Sun 8 Nov) after E9, from `results/figures/` and
-`results/e8_explore/videos/` (figures to be updated with E9 where relevant).
+E9 done and in the figures (above). Slides (P3: by Sun 8 Nov) from `results/figures/`
+and `results/e8_explore/videos/`.

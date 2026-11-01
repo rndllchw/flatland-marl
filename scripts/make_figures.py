@@ -5,9 +5,12 @@ Writes results/figures/<name>.pdf (report) and <name>.png (slides, 200 dpi):
                    95% CI (results/e8_test/summary_arrivals.csv)
     failures       E8 exploratory 2: where the trains go, T1 no disruptions, sampled: arrived / lost / stuck / other,
                    share of all trains, seeds pooled (results/e8_explore/failures_{summary,trains}.csv)
-    validation_curves  IPPO (E6) vs MAPPO (E7) validation arrivals over 200 iterations, sampled: each seed and the
-                   mean; iteration 0 = the starter-kit checkpoint both arms start from; heuristic for reference
-                   (results/{e6,e7}_val_sampled, val_sampled_baselines, e3_val_baselines)
+    validation_curves  IPPO vs MAPPO validation arrivals over 400 iterations, sampled: each seed and the mean;
+                   iteration 0 = the starter-kit checkpoint both arms start from; 10-200 = E6/E7, 210-400 = E9
+                   (bit-identical networks up to 200); heuristic for reference (results/{e6,e7}_val_sampled,
+                   e9_{ippo,mappo}_val_sampled, val_sampled_baselines, e3_val_baselines)
+    budget_effect  E9 (secondary): test arrivals of each arm at iteration 200 (E8) and 400, and MAPPO - IPPO at
+                   both with 95% CI, per test setting (results/e9_test/summary_arrivals.csv)
     reward_story   E3 (official reward) vs E5 (chosen-STOP cost 25 + waiting cost 0.5, value normalisation) over
                    100 iterations: (a) arrivals, (b) official score, validation, sampled (results/{e3,e5}_val_sampled)
     greedy_vs_sampled  per network: (a) T1 test arrivals with sampled vs top-action (greedy) play; (b) mean P(go)
@@ -43,6 +46,7 @@ logging.getLogger("fontTools").setLevel(logging.ERROR)  # harmless warnings whil
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "results" / "figures"
 E8 = ROOT / "results" / "e8_test"
+E9 = ROOT / "results" / "e9_test"
 EXPLORE = ROOT / "results" / "e8_explore"
 
 COLOUR = {"MAPPO": "#2a78d6", "IPPO": "#eb6834", "heuristic": "#1baf7a", "checkpoint": "#898781"}
@@ -158,32 +162,49 @@ def val_baseline(folder, policy=None, metric="completion_rate") -> float:
     return e.groupby("scenario")[metric].mean().mean()
 
 
-def curves(ax, folder, colour, label, start, metric="completion_rate", scale=100):
+def curves(ax, folders, colour, label, start, metric="completion_rate", scale=100):
     """One run's validation curve: a thin line per training seed and a thick mean, from `start` at iteration 0
-    (the checkpoint every run is warm-started from). Returns the final mean."""
-    s = pd.read_csv(ROOT / "results" / folder / "summary_by_snapshot.csv")
+    (the checkpoint every run is warm-started from). `folders`: one folder, or several holding consecutive
+    iterations of the same runs. Returns the mean per iteration."""
+    folders = [folders] if isinstance(folders, str) else folders
+    s = pd.concat([pd.read_csv(ROOT / "results" / f / "summary_by_snapshot.csv") for f in folders])
+    assert not s.duplicated(["seed", "iteration"]).any(), folders
+    s = s.sort_values(["seed", "iteration"])
     for _, seed in s.groupby("seed"):
         ax.plot([0, *seed.iteration], [start * scale, *seed[metric] * scale], color=colour, lw=0.8, alpha=0.35)
     mean = s.groupby("iteration")[metric].mean()
     ax.plot([0, *mean.index], [start * scale, *mean * scale], color=colour, lw=2, label=label)
-    return mean.iloc[-1]
+    return mean
+
+
+def spread(values, gap):
+    """Label positions for two values: pushed apart symmetrically until at least `gap` apart."""
+    low, high = sorted(values)
+    shift = max(0, gap - (high - low)) / 2
+    return [v + (shift if v == high else -shift) for v in values]
 
 
 def validation_curves():
     start = val_baseline("val_sampled_baselines")             # checkpoint, sampled, seeds 0-2 = both arms at it 0
     heuristic = val_baseline("e3_val_baselines", "heuristic")
     fig, ax = plt.subplots(figsize=(WIDTH, 2.8))
-    for name, folder in (("IPPO", "e6_val_sampled"), ("MAPPO", "e7_val_sampled")):
-        final = curves(ax, folder, COLOUR[name], f"{name} (mean of 3 seeds)", start)
-        ax.text(203, final * 100, f"{name} {final:.0%}", va="center", fontsize=8.5, color=INK)
+    arms = (("IPPO", ("e6_val_sampled", "e9_ippo_val_sampled")), ("MAPPO", ("e7_val_sampled", "e9_mappo_val_sampled")))
+    means = {name: curves(ax, folders, COLOUR[name], f"{name} (mean of 3 seeds)", start) for name, folders in arms}
+    for x, text in ((200, "E8 tested\niteration 200"), (400, "E9 tested\niteration 400")):
+        ax.axvline(x, color=MUTED, lw=0.8, ls=":", zorder=1)
+        ax.text(x - 4, 80, text, ha="right", va="center", fontsize=7.5, color=INK_2)
+    ends = spread([means[name].loc[400] * 100 for name, _ in arms], gap=3.6)
+    for (name, _), y in zip(arms, ends):
+        ax.text(406, y, f"{name} {means[name].loc[200]:.0%} $\\rightarrow$ {means[name].loc[400]:.0%}", va="center",
+                fontsize=8.5, color=INK)
     ax.axhline(heuristic * 100, color=COLOUR["heuristic"], lw=1)
-    ax.text(203, heuristic * 100, f"heuristic {heuristic:.0%}", va="center", fontsize=8.5, color=INK)
+    ax.text(406, heuristic * 100, f"heuristic {heuristic:.0%}", va="center", fontsize=8.5, color=INK)
     ax.plot(0, start * 100, clip_on=False, **marker("checkpoint"))
     ax.annotate(f"start: checkpoint {start:.0%}", (0, start * 100), xytext=(8, -12), textcoords="offset points",
                 fontsize=8.5, color=INK_2)
-    ax.set_xlim(0, 200)
+    ax.set_xlim(0, 400)
     ax.set_ylim(30, 90)
-    ax.set_xticks(range(0, 201, 25))
+    ax.set_xticks(range(0, 401, 50))
     ax.set_xlabel("training iteration (32 games each)")
     ax.set_ylabel("trains arrived (%)")
     ax.legend(loc="lower right", fontsize=8.5, handlelength=1.5)
@@ -200,12 +221,9 @@ def reward_story():
     for ax, metric, scale, fmt, ylim, title in ((a, "completion_rate", 100, "{:.0%}", (30, 75), "(a) trains arrived (%)"),
                                                 (b, "score", 1, "{:.2f}", (0.4, 0.9), "(b) official score")):
         start = val_baseline("val_sampled_baselines", metric=metric)
-        finals = [curves(ax, folder, colour, label, start, metric, scale) for label, folder, colour in runs]
+        finals = [curves(ax, folder, colour, label, start, metric, scale).iloc[-1] for label, folder, colour in runs]
         gap = 0.06 * (ylim[1] - ylim[0])  # end labels closer than this are pushed apart
-        low, high = sorted(finals)
-        shift = max(0, gap - (high - low) * scale) / 2
-        for final in finals:
-            y = final * scale + (shift if final == high else -shift)
+        for final, y in zip(finals, spread([f * scale for f in finals], gap)):
             ax.text(102, y, fmt.format(final), va="center", fontsize=8.5, color=INK)
         ax.plot(0, start * scale, clip_on=False, **marker("checkpoint"))
         ax.set_xlim(0, 100)
@@ -271,6 +289,56 @@ def greedy_vs_sampled():
     return fig
 
 
+def budget_effect():
+    """E9: per setting, each arm's arrivals at 200 (light dot) and 400 (filled dot), and MAPPO - IPPO at both."""
+    d = pd.read_csv(E9 / "summary_arrivals.csv")
+    d = d[d["mode"] == "sampled"].set_index(["set", "disruption"])
+    rows = [d.loc[(s, dis)] for s, dis, _ in SETTINGS]
+    y = list(range(len(rows)))[::-1]
+    off = 0.17  # IPPO / iteration 200 just above the setting's line, MAPPO / iteration 400 just below
+
+    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, 2.9), sharey=True, gridspec_kw={"width_ratios": [1.7, 1]})
+    for yi, r in zip(y, rows):
+        for name, dy in (("IPPO", off), ("MAPPO", -off)):
+            before, after = r[f"{name.lower()}_200"] * 100, r[f"{name.lower()}_400"] * 100
+            a.plot([before, after], [yi + dy] * 2, color=COLOUR[name], lw=1.5, zorder=2)
+            a.plot(before, yi + dy, marker="o", ms=5.5, mfc=TINT[name], mec=COLOUR[name], mew=1.2, ls="", zorder=3)
+            a.plot(after, yi + dy, **marker(name))
+    a.set_xlim(50, 80)
+    a.set_xticks([50, 60, 70, 80])
+    a.set_xlabel("trains arrived (%)")
+    a.set_yticks(y, [label for *_, label in SETTINGS])
+    a.get_yticklabels()[0].set_fontweight("bold")
+    a.grid(axis="y", visible=False)
+    a.set_title("(a) trains arrived, iteration 200 $\\rightarrow$ 400", loc="left", fontsize=9, color=INK_2)
+
+    for yi, r in zip(y, rows):
+        for it, dy, style in ((200, off, dict(marker="o", ms=5.5, mfc=TINT["checkpoint"], mec=MUTED, mew=1.2,
+                                                  ls="", zorder=3)),
+                              (400, -off, marker("MAPPO"))):
+            mean, lo, hi = (r[f"mappo_minus_ippo_{it}{c}"] * 100 for c in ("", "_lo", "_hi"))
+            b.plot([lo, hi], [yi + dy] * 2, color=MUTED if it == 200 else COLOUR["MAPPO"], lw=2, zorder=2)
+            b.plot(mean, yi + dy, **style)
+        change, lo, hi = (r[f"gap_change{c}"] * 100 for c in ("", "_lo", "_hi"))
+        b.text(10.6, yi, f"{change:+.1f} [{lo:+.1f}, {hi:+.1f}]", va="center", fontsize=8, color=INK_2)
+    b.text(10.6, len(rows) - 0.45, "gap change", va="center", fontsize=8, color=INK_2)
+    b.axvline(0, color=AXIS, lw=0.8, zorder=1)
+    b.set_xlim(-3, 10)
+    b.set_xticks([0, 2, 4, 6, 8, 10])
+    b.set_ylim(-0.6, len(rows) - 0.25)
+    b.set_xlabel("MAPPO − IPPO (points)")
+    b.grid(axis="y", visible=False)
+    b.set_title("(b) MAPPO − IPPO, 95% CI", loc="left", fontsize=9, color=INK_2)
+
+    handles = [plt.Line2D([], [], **marker("IPPO")), plt.Line2D([], [], **marker("MAPPO")),
+               plt.Line2D([], [], marker="o", ms=5.5, mfc=TINT["checkpoint"], mec=MUTED, mew=1.2, ls=""),
+               plt.Line2D([], [], marker="o", ms=7, color=MUTED, mec="white", mew=1.2, ls="")]
+    fig.legend(handles, ["IPPO", "MAPPO", "iteration 200 (E8)", "iteration 400 (E9)"], ncol=4, loc="upper center",
+               bbox_to_anchor=(0.5, -0.02), handletextpad=0.2, columnspacing=1.6, fontsize=8.5)
+    fig.subplots_adjust(wspace=0.08)
+    return fig
+
+
 # metric -> (row label, scale, decimals); lateness is in steps, among arrived trains only
 METRICS = {"completion_rate": ("Trains arrived (%)", 100, 1), "score": ("Official score", 1, 3),
            "mean_lateness": ("Mean lateness (steps)", 1, 1), "p90_lateness": ("p90 lateness (steps)", 1, 1),
@@ -325,7 +393,7 @@ def metrics_all_settings():
 
 
 FIGURES = {"test_results": test_results, "failures": failures, "validation_curves": validation_curves,
-           "reward_story": reward_story, "greedy_vs_sampled": greedy_vs_sampled}
+           "budget_effect": budget_effect, "reward_story": reward_story, "greedy_vs_sampled": greedy_vs_sampled}
 TABLES = {"fairness_table": fairness_table, "metrics_all_settings": metrics_all_settings}
 
 
