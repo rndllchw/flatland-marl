@@ -1,0 +1,3 @@
+mappo_iteration,mappo_level,ippo_iteration,extra_iterations,extra_games,extra_agent_steps
+100,0.5110617029137842,100,0,0,-1283.6666666641831
+200,0.567977936398731,120,-80,-2560,-25210642.333333336
