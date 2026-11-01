@@ -1102,8 +1102,22 @@ never seen before, so the test-set reuse of E9 does not carry over. Plan written
   ```
   then validation into `results/e10_{ippo,mappo}_val_sampled`, and an analysis script for the outcomes above, written
   and committed before the test run into `results/e10_test`.
+- **Progress:** plan, configs and D1 committed (a434fe5) before training. Training started 1 Nov 13:52 (6 runs one
+  after another, IPPO then MAPPO per seed; ~8.6 s per iteration, about 2× E9, so ~57 min per run).
+- **Analysis written before any E10 result:** `scripts/e10_analysis.py` (tests: `tests/test_e10_analysis.py`, with E8's
+  and E9's arms as stand-ins; 11 deliberate bugs all caught) and `scripts/run_e10.sh` (the test run above, into
+  `results/e10_test`). Step 1, after validation: `python scripts/e10_analysis.py --validation-only` applies the
+  early-stop rule (both arms' mean below the checkpoint at iteration 200; equal is not below) and writes outcome 8.
+  Step 2, after `run_e10.sh`: `python scripts/e10_analysis.py` writes the primary and outcomes 1–7. Details fixed with
+  the script: outcome 3 compares with the checkpoint in the same mode (sampled rows: sampled checkpoint; greedy row:
+  greedy checkpoint); outcome 5 reports all E8 metrics, the readout prints score, p90 lateness and Gini; outcome 7
+  pairs each dense-trained arm with E9's same arm on T1 none. Outcome 8 uses `explore_learning_speed.learning_speed`
+  (refactored into a function; E9 output byte-identical) with the same thresholds (60 / 65 / 67.5%) and windows, but
+  MAPPO's levels read at iterations 100 and 200 only, because validation here is every 20 iterations (no 150), and
+  the 3-snapshot smoothing spans 60 iterations instead of 30.
 
 ### Next (paused 1 Nov)
 
-E9 done and in the figures (above). Slides (P3: by Sun 8 Nov) from `results/figures/`
-and `results/e8_explore/videos/`.
+E9 done and in the figures (above). E10 training running (started 1 Nov 13:52, ~19:40 expected), then validation,
+the early-stop check, the test run and the write-up. Slides (P3: by Sun 8 Nov) from `results/figures/` and
+`results/e8_explore/videos/`.

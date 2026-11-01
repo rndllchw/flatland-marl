@@ -49,31 +49,38 @@ def agent_steps(training: str, iteration: int) -> float:
     return sum(log.loc[iteration, "agent_steps_total"] for log in logs) / len(logs)
 
 
-def main():
-    curves = {arm: validation(folders) for arm, (folders, _) in ARMS.items()}
+def learning_speed(arms=ARMS, thresholds=THRESHOLDS, levels_at=LEVELS_AT) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The two tables above, for `arms` = {name: (validation folders, training folder)}; the first arm is the one
+    that has to catch up (IPPO), the second the one whose levels it chases (MAPPO)."""
+    curves = {arm: validation(folders) for arm, (folders, _) in arms.items()}
     rows = []
     for arm, c in curves.items():
         for seed in [*c.columns, "mean"]:
             curve = c.mean(axis=1) if seed == "mean" else c[seed]
             row = {"arm": arm, "seed": seed,
-                   **{f"reach_{t:.1%}": first_reaching(curve, t) for t in THRESHOLDS},
+                   **{f"reach_{t:.1%}": first_reaching(curve, t) for t in thresholds},
                    "mean_10_200": curve.loc[10:200].mean(), "mean_210_400": curve.loc[210:400].mean()}
             rows.append(row)
-    seeds = pd.DataFrame(rows).astype({f"reach_{t:.1%}": "Int64" for t in THRESHOLDS})
+    seeds = pd.DataFrame(rows).astype({f"reach_{t:.1%}": "Int64" for t in thresholds})
 
-    ippo, mappo = curves["IPPO"].mean(axis=1), curves["MAPPO"].mean(axis=1)
+    (slow, (_, slow_training)), (fast, (_, fast_training)) = arms.items()
+    ippo, mappo = curves[slow].mean(axis=1), curves[fast].mean(axis=1)
     head = []
-    for at in LEVELS_AT:
+    for at in levels_at:
         level = smooth(mappo).loc[at]
         reached = first_reaching(ippo, level)
         row = {"mappo_iteration": at, "mappo_level": level, "ippo_iteration": reached}
         if reached is not None:
             row.update(extra_iterations=reached - at, extra_games=(reached - at) * GAMES_PER_ITERATION,
-                       extra_agent_steps=agent_steps(ARMS["IPPO"][1], reached)
-                       - agent_steps(ARMS["MAPPO"][1], at))
+                       extra_agent_steps=agent_steps(slow_training, reached) - agent_steps(fast_training, at))
         head.append(row)
-    head = pd.DataFrame(head).astype({c: "Int64" for c in ("ippo_iteration", "extra_iterations", "extra_games")})
+    head = pd.DataFrame(head)  # the extra_* columns are missing if IPPO never reaches any level
+    head = head.astype({c: "Int64" for c in ("ippo_iteration", "extra_iterations", "extra_games") if c in head})
+    return seeds, head
 
+
+def main():
+    seeds, head = learning_speed()
     OUT.mkdir(parents=True, exist_ok=True)
     seeds.to_csv(OUT / "learning_speed_seeds.csv", index=False)
     head.to_csv(OUT / "learning_speed_headstart.csv", index=False)
