@@ -1,0 +1,16 @@
+{
+  "spec": {
+    "scene": "scene_1",
+    "n_agents": [
+      15,
+      20
+    ],
+    "line_length": 2,
+    "seed": 2300000
+  },
+  "n": 100,
+  "command": "python scripts/make_scenario_pool.py --scene scene_1 --n-agents 15 20 --line-length 2 --workers 10 --out eval_sets/test/d1_scene1_a15-20_ll2 --n 100 --seed 2300000",
+  "git_commit": "c288d40e84f81e3defab5e9ae6da4182294d64b8",
+  "flatland_rl": "4.2.6",
+  "date_utc": "2026-11-01T03:28:58+00:00"
+}

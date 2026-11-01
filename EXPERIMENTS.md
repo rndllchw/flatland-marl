@@ -1024,6 +1024,85 @@ plan below was written and committed before training started; anything added lat
   dotted lines at the networks E8 and E9 tested); new `budget_effect` (each arm 200 → 400 per test setting, MAPPO −
   IPPO at both, gap change). `test_results`, `greedy_vs_sampled`, `failures` and the tables stay at iteration 200.
 
+### E9 exploratory: learning speed (1 Nov; decided after seeing the curves, not pre-registered)
+
+How much sooner does MAPPO reach a given validation level? `scripts/explore_learning_speed.py` (2 tests) →
+`results/e9_explore/learning_speed_{seeds,headstart}.csv`. Validation (50 scenarios, sampled) over 400 iterations
+(E6/E7 + E9); single snapshots move by ~3 points, so each curve is smoothed as the trailing mean of 3 snapshots;
+"reached" = first iteration whose smoothed value is at least the level. 3 seeds per arm, no CIs.
+
+| First iteration reaching | 60% | 65% | 67.5% | mean, its 10–200 | mean, its 210–400 |
+|---|---|---|---|---|---|
+| IPPO seeds 0 / 1 / 2 | 70 / 100 / 80 | 160 / 120 / 150 | 240 / 240 / not reached | 61.7 / 60.2 / 61.2 | 69.0 / 68.1 / 66.2 |
+| MAPPO seeds 0 / 1 / 2 | 70 / 70 / 120 | 120 / 110 / 150 | 180 / 130 / 190 | 61.8 / 63.9 / 61.3 | 69.1 / 70.3 / 68.6 |
+| IPPO, arm mean curve | 80 | 190 | 240 | 61.0 | 67.7 |
+| MAPPO, arm mean curve | 90 | 150 | 180 | 62.3 | 69.3 |
+
+- **No difference up to ~60%:** both arms leave the checkpoint (47%) at the same pace for the first ~100 iterations.
+- **Above 65% MAPPO is faster:** it reaches 67.5% at 130–190 in every seed; IPPO at 240 in two seeds and never (in
+  smoothed terms) in the third.
+- **Head start** (arm mean curves): MAPPO's level at iteration 150 (65.7%) IPPO reaches at 230 (+80 iterations =
+  2,560 games); MAPPO's level at 200 (68.9%) at 340 (+140 iterations = 4,480 games, ~17.7 M more train-steps).
+  The last number is fragile: 68.9% is near IPPO's plateau (67–69%), so its crossing time is noisy.
+- **Reading:** the gain from the central critic is in the second phase of learning (from ~60% up), where it saves
+  roughly 80–140 iterations, i.e. it cuts the iterations needed to reach ~66–69% by about 35–40% (230 → 150, 340 → 200).
+  Consistent with E9's test result (same level at 400).
+
+## E10: both arms trained in dense traffic, 15–20 trains (planned 1 Nov, before any E10 run; secondary)
+
+**Status:** decided after E8 and E9, so **secondary**; E8 stays the main result. Tested on a **new** test set (D1),
+never seen before, so the test-set reuse of E9 does not carry over. Plan written and committed before training.
+
+- **Why:** E9 found no MAPPO − IPPO gap at 400 iterations on 5–10 trains. A central critic should matter most when
+  trains must coordinate, and in E8 MAPPO matched the heuristic only in dense traffic (T2). Question: when both arms
+  train on 15–20 trains, does MAPPO end up ahead?
+- **Design:** E9 with only the training scenarios changed: `configs/{ippo,mappo}_warm_scene1_a15-20_ll2_stopcost_400.yaml`
+  (`env.pool` and name differ from E9's configs; nothing else). Warm start from the checkpoint, same reward and PPO
+  settings, 400 iterations × 32 games, seeds 0–2, same machine. MAPPO's critic input is a fixed-size summary (40
+  numbers) whatever the number of trains, so no code changes.
+- **Scenarios** (new; seed ranges as in Conventions):
+
+  | Pool | Path | Scenarios | Seeds |
+  |---|---|---|---|
+  | training | `pools/scene1_a15-20_ll2` | scene 1, 15–20 trains, line length 2, 1,000 | 100,000–100,999 |
+  | validation | `pools/val_scene1_a15-20_ll2` | same, 50 | 1,100,000–1,100,049 |
+  | test D1 | `eval_sets/test/d1_scene1_a15-20_ll2` | same, 100 | 2,300,000–2,300,099 |
+
+- **Pools built** 1 Nov 11:17–11:29 (commands below; `pool.json` in each folder). **Duplicate check** (as E8's check 2:
+  fingerprints of every train's start, direction, target, timetable and waypoints plus max steps): each set distinct
+  (1,000 / 50 / 100), and D1 shares **0** scenarios with the dense training and validation pools and with the 5–10
+  train pools (2,000 + 50); dense validation ∩ dense training = 0. Fingerprints stable and free of memory addresses.
+- **Early stop:** if at iteration 200 both arms' validation mean is below the checkpoint's (sampled, same pool), stop
+  and report instead of continuing to test.
+- **Validation:** every 20 iterations (20, 40, …, 400), sampled, evaluation seeds 0–2, plus the checkpoint (sampled)
+  and the heuristic on the validation pool for reference.
+- **Final network:** iteration 400, fixed in advance; iteration 200 also tested (secondary).
+- **Test:** iteration-200 and -400 actors on D1 × {none, breakdowns}, sampled, evaluation seeds 0–2; greedy on D1
+  none at 400, seed 0; baselines (checkpoint sampled and greedy, heuristic) on D1; iteration-400 actors on T1 none
+  (exploratory: T1 has been used twice).
+- **E10 primary outcome:** D1, no disruptions, sampled, share of trains arrived: MAPPO(400) − IPPO(400), per scenario
+  mean over 3 training × 3 evaluation seeds, paired over scenarios, 95% bootstrap CI (`val_analysis.paired_ci`,
+  10,000 resamples, seed 0), as E8 and E9.
+- **Secondary outcomes:** (1) the same at iteration 200; (2) each arm 400 − 200 on D1 none; (3) each arm at 400 vs
+  the heuristic and the checkpoint on D1 none; (4) the primary on D1 breakdowns; (5) score, p90 lateness and penalty
+  Gini at 400 on D1 none; (6) greedy D1 none at 400; (7) exploratory: dense-trained arms on T1 none, against E9's
+  arms (trained on 5–10 trains) at 400; (8) exploratory: learning speed on validation with the measures of the
+  learning-speed analysis (E9 exploratory).
+- **Interpretation fixed in advance:** "the central critic helps more in dense traffic" only if the primary CI
+  excludes 0 with MAPPO ahead. If the CI includes 0, report "no detectable difference in dense traffic either". If
+  MAPPO is behind (CI below 0), report that.
+- **Cost (estimates):** pools ~20–30 min; training 6 × ~65–75 min ≈ 7 h; validation 18,000 episodes ≈ 65 min; test
+  ≈ 11,600 episodes ≈ 40 min.
+- **Commands** (run from the repo root; filled in when run, any deviation recorded here):
+  ```
+  python scripts/make_scenario_pool.py --out pools/scene1_a15-20_ll2 --n 1000 --scene scene_1 --n-agents 15 20 --line-length 2 --seed 100000 --workers 10
+  python scripts/make_scenario_pool.py --out pools/val_scene1_a15-20_ll2 --n 50 --scene scene_1 --n-agents 15 20 --line-length 2 --seed 1100000 --workers 10
+  python scripts/make_scenario_pool.py --out eval_sets/test/d1_scene1_a15-20_ll2 --n 100 --scene scene_1 --n-agents 15 20 --line-length 2 --seed 2300000 --workers 10
+  python scripts/train.py --config configs/{ippo,mappo}_warm_scene1_a15-20_ll2_stopcost_400.yaml --seed S --out results/e10_{ippo,mappo}_training/seed_S
+  ```
+  then validation into `results/e10_{ippo,mappo}_val_sampled`, and an analysis script for the outcomes above, written
+  and committed before the test run into `results/e10_test`.
+
 ### Next (paused 1 Nov)
 
 E9 done and in the figures (above). Slides (P3: by Sun 8 Nov) from `results/figures/`
