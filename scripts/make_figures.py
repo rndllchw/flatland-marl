@@ -27,6 +27,7 @@ and tables as <name>.md (slides, docs) and <name>.tex (report, booktabs), from r
 
     python scripts/make_figures.py                 # all figures
     python scripts/make_figures.py --only test_results
+    python scripts/make_figures.py --slides        # bigger text, PNGs only, results/figures/slides/
 
 Style (same in every figure): one colour per policy (MAPPO blue, IPPO orange, heuristic aqua, checkpoint grey as a
 reference), validated for colour-blind separation; trained policies are filled dots, baselines hollow rings (a second
@@ -76,6 +77,21 @@ plt.rcParams.update({
 
 BASELINES = {"checkpoint", "heuristic"}
 
+# Text and height scale: 1 for the report; --slides sets SLIDE_SCALE so labels stay readable when a figure is
+# projected (each figure keeps its layout, with all text and the room around it scaled up).
+SLIDE_SCALE = {"font": 1.45, "height": 1.3}
+FONT_SCALE, HEIGHT_SCALE = 1.0, 1.0
+
+
+def fs(size):
+    """A font size, scaled for slides."""
+    return size * FONT_SCALE
+
+
+def height(inches):
+    """A figure height, scaled for slides (bigger text needs more vertical room)."""
+    return inches * HEIGHT_SCALE
+
 
 def marker(name, size=7):
     """Plot style for a policy: trained arms filled with a white ring, baselines hollow."""
@@ -90,7 +106,7 @@ def test_results():
     rows = [d.loc[(s, dis)] for s, dis, _ in SETTINGS]
     y = list(range(len(rows)))[::-1]  # first setting on top
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, 2.9), sharey=True, gridspec_kw={"width_ratios": [1.7, 1]})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, height(2.9)), sharey=True, gridspec_kw={"width_ratios": [1.7, 1]})
     series = [("checkpoint", "checkpoint_sampled_arrived"), ("IPPO", "ippo_arrived"), ("MAPPO", "mappo_arrived"),
               ("heuristic", "heuristic_arrived")]
     for yi, r in zip(y, rows):
@@ -105,20 +121,20 @@ def test_results():
     a.grid(axis="y", visible=False)
     handles = [plt.Line2D([], [], **marker(n)) for n, _ in series]
     fig.legend(handles, ["checkpoint (starter kit)", "IPPO", "MAPPO", "heuristic (deadlock avoidance)"], ncol=4,
-               loc="upper center", bbox_to_anchor=(0.5, -0.02), handletextpad=0.2, columnspacing=1.4, fontsize=8.5)
-    a.set_title("(a) trains arrived, per policy", loc="left", fontsize=9, color=INK_2)
+               loc="upper center", bbox_to_anchor=(0.5, -0.02), handletextpad=0.2, columnspacing=1.4, fontsize=fs(8.5))
+    a.set_title("(a) trains arrived, per policy", loc="left", fontsize=fs(9), color=INK_2)
 
     for yi, r in zip(y, rows):
         mean, lo, hi = (r[c] * 100 for c in ("mappo_minus_ippo", "mappo_minus_ippo_lo", "mappo_minus_ippo_hi"))
         b.plot([lo, hi], [yi, yi], color=COLOUR["MAPPO"], lw=2, zorder=2)
         b.plot(mean, yi, **marker("MAPPO"))
-        b.text(10.6, yi, f"{mean:+.1f} [{lo:+.1f}, {hi:+.1f}]", va="center", fontsize=8, color=INK_2)
+        b.text(10.6, yi, f"{mean:+.1f} [{lo:+.1f}, {hi:+.1f}]", va="center", fontsize=fs(8), color=INK_2)
     b.axvline(0, color=AXIS, lw=0.8, zorder=1)
     b.set_xlim(-1, 10)
     b.set_xticks([0, 2, 4, 6, 8, 10])
     b.set_xlabel("MAPPO − IPPO (points)")
     b.grid(axis="y", visible=False)
-    b.set_title("(b) MAPPO − IPPO, 95% CI", loc="left", fontsize=9, color=INK_2)
+    b.set_title("(b) MAPPO − IPPO, 95% CI", loc="left", fontsize=fs(9), color=INK_2)
     fig.subplots_adjust(wspace=0.08)
     return fig
 
@@ -134,7 +150,7 @@ def failures():
     parts = [("lost (drives in loops)", "#6250d6", "white"), ("stuck (stands still)", "#eda100", INK),
              ("other (out of time, never left)", MUTED, "white"), ("arrived", GRID, INK_2)]
 
-    fig, ax = plt.subplots(figsize=(WIDTH, 2.1))
+    fig, ax = plt.subplots(figsize=(WIDTH, height(2.1)))
     for yi, name in zip(range(len(order))[::-1], order):
         n = summary.loc[name, "trains"]
         shares = [(lost & (f.policy == name)).sum() / n, (f[f.policy == name].bucket == "stuck").sum() / n]
@@ -145,7 +161,7 @@ def failures():
             width = share * 100
             ax.barh(yi, width, left=left, height=0.62, color=colour, edgecolor="white", linewidth=1.5)
             if width >= 6:  # print the share only where it fits
-                ax.text(left + 1.2, yi, f"{width:.0f}%", va="center", fontsize=8, color=text)
+                ax.text(left + 1.2, yi, f"{width:.0f}%", va="center", fontsize=fs(8), color=text)
             left += width
     ax.set_yticks(range(len(order))[::-1], order)
     ax.set_xlim(0, 100)
@@ -154,8 +170,8 @@ def failures():
     ax.spines["left"].set_visible(False)
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for _, c, _ in parts]
     ax.legend(handles, [p for p, _, _ in parts], ncol=4, loc="upper center", bbox_to_anchor=(0.45, -0.25),
-              handlelength=1.0, handletextpad=0.4, columnspacing=1.4, fontsize=8.5)
-    ax.set_title("T1, no disruptions, sampled actions; IPPO and MAPPO: 3 seeds pooled", loc="left", fontsize=9,
+              handlelength=1.0, handletextpad=0.4, columnspacing=1.4, fontsize=fs(8.5))
+    ax.set_title("T1, no disruptions, sampled actions; IPPO and MAPPO: 3 seeds pooled", loc="left", fontsize=fs(9),
                  color=INK_2)
     return fig
 
@@ -192,54 +208,57 @@ def spread(values, gap):
 def validation_curves():
     start = val_baseline("val_sampled_baselines")             # checkpoint, sampled, seeds 0-2 = both arms at it 0
     heuristic = val_baseline("e3_val_baselines", "heuristic")
-    fig, ax = plt.subplots(figsize=(WIDTH, 2.8))
+    fig, ax = plt.subplots(figsize=(WIDTH, height(2.8)))
     arms = (("IPPO", ("e6_val_sampled", "e9_ippo_val_sampled")), ("MAPPO", ("e7_val_sampled", "e9_mappo_val_sampled")))
     means = {name: curves(ax, folders, COLOUR[name], f"{name} (mean of 3 seeds)", start) for name, folders in arms}
     for x, text in ((200, "E8 tested\niteration 200"), (400, "E9 tested\niteration 400")):
         ax.axvline(x, color=MUTED, lw=0.8, ls=":", zorder=1)
-        ax.text(x - 4, 80, text, ha="right", va="center", fontsize=7.5, color=INK_2)
-    ends = spread([means[name].loc[400] * 100 for name, _ in arms], gap=3.6)
+        ax.text(x - 4, 80, text, ha="right", va="center", fontsize=fs(7.5), color=INK_2)
+    ends = spread([means[name].loc[400] * 100 for name, _ in arms], gap=3.6 * FONT_SCALE / HEIGHT_SCALE)
     for (name, _), y in zip(arms, ends):
         ax.text(406, y, f"{name} {means[name].loc[200]:.0%} $\\rightarrow$ {means[name].loc[400]:.0%}", va="center",
-                fontsize=8.5, color=INK)
+                fontsize=fs(8.5), color=INK)
     ax.axhline(heuristic * 100, color=COLOUR["heuristic"], lw=1)
-    ax.text(406, heuristic * 100, f"heuristic {heuristic:.0%}", va="center", fontsize=8.5, color=INK)
+    ax.text(406, heuristic * 100, f"heuristic {heuristic:.0%}", va="center", fontsize=fs(8.5), color=INK)
     ax.plot(0, start * 100, clip_on=False, **marker("checkpoint"))
     ax.annotate(f"start: checkpoint {start:.0%}", (0, start * 100), xytext=(8, -12), textcoords="offset points",
-                fontsize=8.5, color=INK_2)
+                fontsize=fs(8.5), color=INK_2)
     ax.set_xlim(0, 400)
     ax.set_ylim(30, 90)
     ax.set_xticks(range(0, 401, 50))
     ax.set_xlabel("training iteration (32 games each)")
     ax.set_ylabel("trains arrived (%)")
-    ax.legend(loc="lower right", fontsize=8.5, handlelength=1.5)
+    ax.legend(loc="lower right", fontsize=fs(8.5), handlelength=1.5)
     ax.set_title("validation set (50 scenarios), sampled actions; thin lines: individual training seeds", loc="left",
-                 fontsize=9, color=INK_2)
+                 fontsize=fs(9), color=INK_2)
     return fig
 
 
 def reward_story():
     """Small multiples (not a dual axis): arrivals and the official score of E3 and E5 over the same iterations."""
-    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, 2.6), sharex=True)
+    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, height(2.6)), sharex=True)
     runs = [("E3: official reward", "e3_val_sampled", MUTED), ("E5: chosen-STOP + waiting cost", "e5_val_sampled",
                                                                COLOUR["IPPO"])]
     for ax, metric, scale, fmt, ylim, title in ((a, "completion_rate", 100, "{:.0%}", (30, 75), "(a) trains arrived (%)"),
                                                 (b, "score", 1, "{:.2f}", (0.4, 0.9), "(b) official score")):
         start = val_baseline("val_sampled_baselines", metric=metric)
         finals = [curves(ax, folder, colour, label, start, metric, scale).iloc[-1] for label, folder, colour in runs]
-        gap = 0.06 * (ylim[1] - ylim[0])  # end labels closer than this are pushed apart
+        gap = 0.06 * (ylim[1] - ylim[0]) * FONT_SCALE / HEIGHT_SCALE  # end labels closer than this are pushed apart
         for final, y in zip(finals, spread([f * scale for f in finals], gap)):
-            ax.text(102, y, fmt.format(final), va="center", fontsize=8.5, color=INK)
+            ax.text(102, y, fmt.format(final), va="center", fontsize=fs(8.5), color=INK)
         ax.plot(0, start * scale, clip_on=False, **marker("checkpoint"))
         ax.set_xlim(0, 100)
         ax.set_ylim(*ylim)
         ax.set_xticks(range(0, 101, 25))
         ax.set_xlabel("training iteration")
-        ax.set_title(title, loc="left", fontsize=9, color=INK_2)
-    a.annotate("checkpoint (start)", (0, val_baseline("val_sampled_baselines") * 100), xytext=(6, -30),
-               textcoords="offset points", fontsize=8, color=INK_2)
+        ax.set_title(title, loc="left", fontsize=fs(9), color=INK_2)
+    if FONT_SCALE == 1:
+        a.annotate("checkpoint (start)", (0, val_baseline("val_sampled_baselines") * 100), xytext=(6, -30),
+                   textcoords="offset points", fontsize=fs(8), color=INK_2)
+    else:  # bigger text would sit on the E3 lines: put it at the bottom of the panel instead
+        a.text(2, 31, "checkpoint (start)", fontsize=fs(8), color=INK_2)
     handles, labels = a.get_legend_handles_labels()
-    fig.legend(handles[:2], labels[:2], ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.02), fontsize=8.5,
+    fig.legend(handles[:2], labels[:2], ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.02), fontsize=fs(8.5),
                handlelength=1.5, columnspacing=2)
     fig.subplots_adjust(wspace=0.3)
     return fig
@@ -262,7 +281,7 @@ def greedy_vs_sampled():
     labels = ["checkpoint", "IPPO seed 0", "IPPO seed 1", "IPPO seed 2", "MAPPO seed 0", "MAPPO seed 1",
               "MAPPO seed 2"]
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, 2.9), sharey=True, gridspec_kw={"width_ratios": [1.6, 1]})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, height(2.9)), sharey=True, gridspec_kw={"width_ratios": [1.6, 1]})
     for yi, name in zip(y, names):
         policy = name.split()[0]
         sampled, greedy = (v * 100 for v in arrived[name])
@@ -276,20 +295,20 @@ def greedy_vs_sampled():
     a.set_xlabel("trains arrived, test set T1 (%)")
     a.set_yticks(y, labels)
     a.grid(axis="y", visible=False)
-    a.set_title("(a) sampled vs greedy play", loc="left", fontsize=9, color=INK_2)
+    a.set_title("(a) sampled vs greedy play", loc="left", fontsize=fs(9), color=INK_2)
     handles = [plt.Line2D([], [], marker="o", ms=7, color=MUTED, mec="white", ls=""),
                plt.Line2D([], [], marker="D", ms=6, mfc=TINT["checkpoint"], mec=MUTED, mew=1.2, ls="")]
     fig.legend(handles, ["sampled (as in training)", "greedy (always the top action)"], ncol=2, loc="upper center",
-               bbox_to_anchor=(0.45, -0.02), fontsize=8.5, handletextpad=0.3, columnspacing=2)
+               bbox_to_anchor=(0.45, -0.02), fontsize=fs(8.5), handletextpad=0.3, columnspacing=2)
 
     b.axvline(0.5, color=AXIS, lw=0.8, zorder=1)
-    b.text(0.52, 8.25, "above 0.5: greedy\ntrains leave at once", fontsize=7.5, color=INK_2, va="bottom")
+    b.text(0.52, 8.25, "above 0.5: greedy\ntrains leave at once", fontsize=fs(7.5), color=INK_2, va="bottom")
     b.set_xlim(0, 1)
     b.set_ylim(0.4, 9.1)
     b.set_xticks([0, 0.25, 0.5, 0.75, 1], ["0", "0.25", "0.5", "0.75", "1"])
     b.set_xlabel("mean P(go) when ready to depart")
     b.grid(axis="y", visible=False)
-    b.set_title("(b) departure probability", loc="left", fontsize=9, color=INK_2)
+    b.set_title("(b) departure probability", loc="left", fontsize=fs(9), color=INK_2)
     fig.subplots_adjust(wspace=0.1)
     return fig
 
@@ -302,7 +321,7 @@ def budget_effect():
     y = list(range(len(rows)))[::-1]
     off = 0.17  # IPPO / iteration 200 just above the setting's line, MAPPO / iteration 400 just below
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, 2.9), sharey=True, gridspec_kw={"width_ratios": [1.7, 1]})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(WIDTH, height(2.9)), sharey=True, gridspec_kw={"width_ratios": [1.7, 1]})
     for yi, r in zip(y, rows):
         for name, dy in (("IPPO", off), ("MAPPO", -off)):
             before, after = r[f"{name.lower()}_200"] * 100, r[f"{name.lower()}_400"] * 100
@@ -315,7 +334,7 @@ def budget_effect():
     a.set_yticks(y, [label for *_, label in SETTINGS])
     a.get_yticklabels()[0].set_fontweight("bold")
     a.grid(axis="y", visible=False)
-    a.set_title("(a) trains arrived, iteration 200 $\\rightarrow$ 400", loc="left", fontsize=9, color=INK_2)
+    a.set_title("(a) trains arrived, iteration 200 $\\rightarrow$ 400", loc="left", fontsize=fs(9), color=INK_2)
 
     for yi, r in zip(y, rows):
         for it, dy, style in ((200, off, dict(marker="o", ms=5.5, mfc=TINT["checkpoint"], mec=MUTED, mew=1.2,
@@ -325,21 +344,21 @@ def budget_effect():
             b.plot([lo, hi], [yi + dy] * 2, color=MUTED if it == 200 else COLOUR["MAPPO"], lw=2, zorder=2)
             b.plot(mean, yi + dy, **style)
         change, lo, hi = (r[f"gap_change{c}"] * 100 for c in ("", "_lo", "_hi"))
-        b.text(10.6, yi, f"{change:+.1f} [{lo:+.1f}, {hi:+.1f}]", va="center", fontsize=8, color=INK_2)
-    b.text(10.6, len(rows) - 0.45, "gap change", va="center", fontsize=8, color=INK_2)
+        b.text(10.6, yi, f"{change:+.1f} [{lo:+.1f}, {hi:+.1f}]", va="center", fontsize=fs(8), color=INK_2)
+    b.text(10.6, len(rows) - 0.45, "gap change", va="center", fontsize=fs(8), color=INK_2)
     b.axvline(0, color=AXIS, lw=0.8, zorder=1)
     b.set_xlim(-3, 10)
     b.set_xticks([0, 2, 4, 6, 8, 10])
     b.set_ylim(-0.6, len(rows) - 0.25)
     b.set_xlabel("MAPPO − IPPO (points)")
     b.grid(axis="y", visible=False)
-    b.set_title("(b) MAPPO − IPPO, 95% CI", loc="left", fontsize=9, color=INK_2)
+    b.set_title("(b) MAPPO − IPPO, 95% CI", loc="left", fontsize=fs(9), color=INK_2)
 
     handles = [plt.Line2D([], [], **marker("IPPO")), plt.Line2D([], [], **marker("MAPPO")),
                plt.Line2D([], [], marker="o", ms=5.5, mfc=TINT["checkpoint"], mec=MUTED, mew=1.2, ls=""),
                plt.Line2D([], [], marker="o", ms=7, color=MUTED, mec="white", mew=1.2, ls="")]
     fig.legend(handles, ["IPPO", "MAPPO", "iteration 200 (E8)", "iteration 400 (E9)"], ncol=4, loc="upper center",
-               bbox_to_anchor=(0.5, -0.02), handletextpad=0.2, columnspacing=1.6, fontsize=8.5)
+               bbox_to_anchor=(0.5, -0.02), handletextpad=0.2, columnspacing=1.6, fontsize=fs(8.5))
     fig.subplots_adjust(wspace=0.08)
     return fig
 
@@ -368,8 +387,9 @@ def dense_collapse():
                                               "checkpoint.pt")
     heuristic = val_baseline("e10_val_baselines", "heuristic")
     trains = pd.read_csv(E10_EXPLORE / "collapse_trains.csv")
-    fig, axes = plt.subplots(2, 2, figsize=(WIDTH, 4.6), gridspec_kw={"height_ratios": [1.25, 1], "hspace": 0.55,
-                                                                       "wspace": 0.38})
+    # 2 x 2 panels leave too little room for slide-size text at the report width: widen for slides
+    fig, axes = plt.subplots(2, 2, figsize=(WIDTH * HEIGHT_SCALE, height(4.6)),
+                             gridspec_kw={"height_ratios": [1.25, 1], "hspace": 0.55, "wspace": 0.38 * FONT_SCALE})
     for col, name in enumerate(("IPPO", "MAPPO")):
         ax = axes[0, col]
         v = pd.read_csv(ROOT / "results" / f"e10_{name.lower()}_val_sampled" / "summary_by_snapshot.csv")
@@ -377,8 +397,8 @@ def dense_collapse():
         for seed, g in v.sort_values("iteration").groupby("seed"):
             ax.plot([0, *g.iteration], [start * 100, *g.completion_rate * 100], color=COLOUR[name], lw=1.3)
             ends[seed] = g.completion_rate.iloc[-1] * 100
-        for seed, y in zip(ends, spaced(list(ends.values()), gap=4.2)):
-            ax.text(406, y, f"seed {seed} {ends[seed]:.0f}%", va="center", fontsize=8, color=INK)
+        for seed, y in zip(ends, spaced(list(ends.values()), gap=4.2 * FONT_SCALE / HEIGHT_SCALE)):
+            ax.text(406, y, f"seed {seed} {ends[seed]:.0f}%", va="center", fontsize=fs(8), color=INK)
         ax.axhline(heuristic * 100, color=COLOUR["heuristic"], lw=1)
         ax.axvline(200, color=MUTED, lw=0.8, ls=":", zorder=1)
         ax.plot(0, start * 100, clip_on=False, **marker("checkpoint"))
@@ -386,12 +406,12 @@ def dense_collapse():
         ax.set_ylim(25, 70)
         ax.set_xticks(range(0, 401, 100))
         ax.set_xlabel("training iteration")
-        ax.set_title(f"({'ab'[col]}) {name}: validation arrivals per seed", loc="left", fontsize=9, color=INK_2)
+        ax.set_title(f"({'ab'[col]}) {name}: validation arrivals per seed", loc="left", fontsize=fs(9), color=INK_2)
         if col == 0:
             ax.set_ylabel("trains arrived (%)")
-            ax.text(212, heuristic * 100 + 1.5, f"heuristic {heuristic:.0%}", fontsize=7.5, color=INK_2)
+            ax.text(212, heuristic * 100 + 1.5, f"heuristic {heuristic:.0%}", fontsize=fs(7.5), color=INK_2)
             ax.annotate(f"start: checkpoint {start:.0%}", (0, start * 100), xytext=(8, -9),
-                        textcoords="offset points", fontsize=7.5, color=INK_2)
+                        textcoords="offset points", fontsize=fs(7.5), color=INK_2)
         else:
             ax.tick_params(labelleft=False)
 
@@ -406,8 +426,8 @@ def dense_collapse():
                 inside = (w > lower) & (w <= upper) if upper is not None else (w > lower) | w.isna()
                 width = inside.mean() * 100
                 ax.barh(yi, width, left=left, height=0.8, color=colour, edgecolor="white", linewidth=1.2)
-                if width >= 9:
-                    ax.text(left + 1.5, yi, f"{width:.0f}%", va="center", fontsize=7.5, color=text)
+                if width >= 9 * FONT_SCALE:  # print the share only where it fits
+                    ax.text(left + 1.5, yi, f"{width:.0f}%", va="center", fontsize=fs(7.5), color=text)
                 left += width
         ax.set_yticks(y, [f"seed {seed}, it {it}" for seed, it in rows])
         if col == 1:
@@ -417,12 +437,12 @@ def dense_collapse():
         ax.set_xlabel("share of trains (%)")
         ax.grid(axis="y", visible=False)
         ax.spines["left"].set_visible(False)
-        ax.set_title(f"({'cd'[col]}) {name}: steps waited before departing", loc="left", fontsize=9, color=INK_2)
+        ax.set_title(f"({'cd'[col]}) {name}: steps waited before departing", loc="left", fontsize=fs(9), color=INK_2)
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for _, _, c, _ in WAIT_BINS]
     fig.legend(handles, [f"{label} steps" if i < 3 else label for i, (label, *_) in enumerate(WAIT_BINS)], ncol=4,
                loc="upper center", bbox_to_anchor=(0.5, 0.0), handlelength=1.0, handletextpad=0.4, columnspacing=1.6,
-               fontsize=8.5, title="waited after its earliest departure (D1, no disruptions, evaluation seed 0)",
-               title_fontsize=8)
+               fontsize=fs(8.5), title="waited after its earliest departure (D1, no disruptions, evaluation seed 0)",
+               title_fontsize=fs(8))
     return fig
 
 
@@ -487,16 +507,26 @@ TABLES = {"fairness_table": fairness_table, "metrics_all_settings": metrics_all_
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", choices=[*FIGURES, *TABLES], help="make one figure or table")
+    parser.add_argument("--slides", action="store_true",
+                        help="bigger text for projection: PNGs only, in results/figures/slides/ (tables skipped)")
     args = parser.parse_args(argv)
-    OUT.mkdir(parents=True, exist_ok=True)
+    global FONT_SCALE, HEIGHT_SCALE
+    out, exts = OUT, ("pdf", "png")
+    if args.slides:
+        FONT_SCALE, HEIGHT_SCALE = SLIDE_SCALE["font"], SLIDE_SCALE["height"]
+        plt.rcParams["font.size"] = fs(9)
+        out, exts = OUT / "slides", ("png",)
+    out.mkdir(parents=True, exist_ok=True)
     for name, make in FIGURES.items():
         if args.only and name != args.only:
             continue
         fig = make()
-        for ext in ("pdf", "png"):
-            fig.savefig(OUT / f"{name}.{ext}", dpi=200)
+        for ext in exts:
+            fig.savefig(out / f"{name}.{ext}", dpi=200)
         plt.close(fig)
-        print(f"wrote {(OUT / name).relative_to(ROOT)}.pdf/.png")
+        print(f"wrote {(out / name).relative_to(ROOT)}.{'/.'.join(exts)}")
+    if args.slides:
+        return
     for name, make in TABLES.items():
         if args.only and name != args.only:
             continue

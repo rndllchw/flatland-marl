@@ -17,4 +17,8 @@ rings in `test_results`.
 | `fairness_table` | T1 no disruptions: arrivals, score, mean / p90 lateness, halts, penalty Gini; MAPPO − IPPO with CI | `e8_test/summary_metrics.csv` | Lateness only over trains that arrived (arms averaged over slightly different trains); Gini 0 = penalties shared equally. Note is in the file |
 | `metrics_all_settings` | Arrivals, score, p90 lateness, Gini in all 6 settings (appendix) | `e8_test/summary_metrics.csv` | As `fairness_table` |
 
+**Slide versions:** `python scripts/make_figures.py --slides` writes the same figures with text 1.45× larger (figures
+1.3× taller; `dense_collapse` also 1.3× wider) as PNGs to `results/figures/slides/`; tables are skipped. Same data, same
+layout; the report files are not touched.
+
 Videos for the slides are separate: `results/e8_explore/videos/` (`scripts/make_videos.py`).
